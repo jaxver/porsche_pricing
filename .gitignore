@@ -1,6 +1,5 @@
 # Project specific data and outputs
 /data/*.xlsx
-/elferspot_listings/
 /data/*.csv
 !/data/.gitkeep
 !/changelogs/.gitkeep
