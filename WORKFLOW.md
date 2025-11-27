@@ -5,7 +5,7 @@
 ### Stage 1: Data Gathering 🔍
 **Goal:** Scrape Porsche listings from web sources
 
-**Notebook:** `notebooks/01_data_gathering/01_scrape_listings.ipynb`
+**Notebook:** `notebooks/01_data_gathering/02_scraping_notebook.ipynb`
 
 **Process:**
 1. Configure scraping parameters
@@ -174,7 +174,7 @@ All settings in `config.py`:
 ## 🐛 Troubleshooting
 
 ### Issue: "Bronze file not found"
-**Solution:** Run `01_scrape_listings.ipynb` first, or place existing data in `data/bronze/`
+**Solution:** Run `02_scraping_notebook.ipynb` first, or place existing data in `data/bronze/`
 
 ### Issue: "Missing columns in Silver"
 **Solution:** Check Bronze data structure matches expected schema
