@@ -32,17 +32,20 @@ elferspot_prod/
 │
 ├── notebooks/                    # Analysis notebooks (organized by stage)
 │   ├── 01_data_gathering/        # Web scraping
-│   │   └── 01_scrape_listings.ipynb
+│   │   └── 02_scraping_notebook.ipynb
 │   ├── 02_data_preparation/      # Data cleaning
+│   │   ├── 01_listings_bronzetosilver.ipynb
 │   │   └── 02_bronze_to_silver.ipynb
 │   ├── 03_feature_engineering/   # Feature creation
 │   │   └── 03_silver_to_gold.ipynb
 │   ├── 04_modeling/              # Model training
 │   │   ├── 04_catboost_model.ipynb
-│   │   ├── 05_ridge_model.ipynb
-│   │   └── 06_model_comparison.ipynb
+│   │   ├── 05_ridge_regression.ipynb
+│   │   └── 06_elasticnet_regression.ipynb
 │   └── 05_analysis/              # Exploratory analysis
-│       └── 07_price_analysis.ipynb
+│       ├── 01_predictive_regression.ipynb
+│       ├── 02_vif_diagnostics.ipynb
+│       └── 03_market_insights.ipynb
 │
 ├── app/
 │   └── streamlit_app.py          # Interactive dashboard
@@ -68,7 +71,7 @@ The project follows a **medallion architecture** with three data quality layers:
 ### 1. Bronze Layer (Raw Data)
 - **Location:** `data/bronze/`
 - **Content:** Raw scraped data with minimal processing
-- **Notebook:** `01_data_gathering/01_scrape_listings.ipynb`
+- **Notebook:** `01_data_gathering/02_scraping_notebook.ipynb`
 
 ### 2. Silver Layer (Cleaned Data)
 - **Location:** `data/silver/`
@@ -138,7 +141,7 @@ Run notebooks in order:
 
 1. **Data Gathering:**
    ```
-   notebooks/01_data_gathering/01_scrape_listings.ipynb
+   notebooks/01_data_gathering/02_scraping_notebook.ipynb
    ```
 
 2. **Data Preparation:**
@@ -154,11 +157,13 @@ Run notebooks in order:
 4. **Model Training:**
    ```
    notebooks/04_modeling/04_catboost_model.ipynb
+   notebooks/04_modeling/05_ridge_regression.ipynb
+   notebooks/04_modeling/06_elasticnet_regression.ipynb
    ```
 
 5. **Analysis:**
    ```
-   notebooks/05_analysis/07_price_analysis.ipynb
+   notebooks/05_analysis/03_market_insights.ipynb
    ```
 
 ### Running the Dashboard
@@ -179,16 +184,18 @@ The dashboard provides:
 The project implements multiple regression approaches:
 
 ### CatBoost (Primary Model)
-- **Notebook:** `04_modeling/04_catboost_model.ipynb`
+- **Notebook:** `notebooks/04_modeling/04_catboost_model.ipynb`
 - **Features:** Handles categorical variables natively, gradient boosting
 - **Performance:** Typically achieves R² > 0.85
 - **Use Case:** Production price predictions
 
 ### Ridge Regression
+- **Notebook:** `notebooks/04_modeling/05_ridge_regression.ipynb`
 - **Features:** Linear model with L2 regularization
 - **Use Case:** Baseline comparison, interpretable coefficients
 
 ### ElasticNet
+- **Notebook:** `notebooks/04_modeling/06_elasticnet_regression.ipynb`
 - **Features:** Combined L1/L2 regularization
 - **Use Case:** Feature selection, sparse models
 
@@ -196,6 +203,8 @@ Models are evaluated using:
 - **Cross-validation:** 5-fold CV for robust performance estimates
 - **Metrics:** RMSE, MAE, R²
 - **Feature Importance:** For interpretability
+
+Each modeling notebook saves calibrated prediction intervals to `results/model_predictions/`, enabling downstream analysis notebooks (`05_analysis/`) to compare models and flag under/over-valued listings without re-training.*** End Patch
 
 ## 🛠️ Development
 

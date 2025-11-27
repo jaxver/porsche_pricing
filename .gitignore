@@ -1,6 +1,4 @@
-# Project specific data and outputs
-/data/*.xlsx
-/data/*.csv
+/data/*
 !/data/.gitkeep
 !/changelogs/.gitkeep
 /results/
@@ -10,3 +8,9 @@
 catboost_info/
 best.txt
 /scripts/__pycache__/
+
+# Python cache and compiled files (exclude everywhere)
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
