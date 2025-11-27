@@ -1,0 +1,8 @@
+pandas
+numpy
+scikit-learn
+catboost
+openpyxl
+seaborn
+matplotlib
+# Add other dependencies as needed

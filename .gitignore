@@ -1,0 +1,13 @@
+# Project specific data and outputs
+/data/*.xlsx
+/elferspot_listings/
+/data/*.csv
+!/data/.gitkeep
+!/changelogs/.gitkeep
+/results/
+/Archive/
+/changelogs/
+/logs/
+catboost_info/
+best.txt
+/scripts/__pycache__/
