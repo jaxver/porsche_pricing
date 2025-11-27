@@ -1,41 +1,96 @@
 # Elferspot Listings - Porsche Price Analytics
 
-A comprehensive Python application for analyzing Porsche car listings data with advanced machine learning capabilities for price prediction and market analysis. This project combines web scraping, data processing, and predictive modeling to provide insights into the Porsche vehicle market.
+A professional, production-ready Python application for analyzing Porsche car listings with advanced machine learning capabilities for price prediction and market analysis. Features a complete ETL pipeline (Bronze → Silver → Gold), multiple ML models, and an interactive dashboard.
 
 ## 🚗 Features
 
-- **Data Processing Pipeline**: Bronze → Silver → Gold data transformation workflow
-- **Machine Learning Models**: CatBoost-based price prediction with cross-validation
+- **Structured Data Pipeline**: Bronze → Silver → Gold medallion architecture
+- **Modular Code Organization**: Reusable Python modules for data processing and modeling
+- **Machine Learning Models**: CatBoost, Ridge, and ElasticNet regression models
 - **Interactive Dashboard**: Streamlit web application for browsing and analyzing listings
+- **Automated Data Processing**: Standardized cleaning, feature engineering, and validation
 - **Price Analytics**: Identify underpriced listings and market trends
-- **Multi-Model Analysis**: Compare Ridge, ElasticNet, and CatBoost regression models
-- **Currency Conversion**: Automatic EUR conversion with exchange rate management
+- **Currency Conversion**: Automatic EUR conversion with cached exchange rates
+- **Comprehensive Notebooks**: Step-by-step workflow from data gathering to modeling
 
-## 📁 Project Structure
+## 🏗️ Project Structure
 
 ```
 elferspot_prod/
-├── app/
-│   └── streamlit_app.py          # Interactive dashboard application
-├── elferspot_listings/           # Main library package
-│   ├── __init__.py
-│   └── notebooks/                # Production notebooks
-│       ├── bronze_to_silver_production.ipynb
-│       └── listing_scores_production.ipynb
-├── notebooks/                    # Research and development notebooks
-│   ├── Catboost model.ipynb      # CatBoost model training
-│   ├── Listings_bronzetosilver.ipynb  # Data transformation
-│   ├── Predictive_regression.ipynb    # Price prediction analysis
-│   ├── scrape_911.ipynb          # Web scraping utilities
-│   └── ...                       # Additional analysis notebooks
-├── scripts/
-│   └── exchange_rates.py         # Currency conversion utilities
-├── tests/
-│   └── test_basic.py             # Unit tests
-├── data/                         # Data files (excluded from git)
+├── config.py                     # Central configuration (paths, settings)
 ├── requirements.txt              # Python dependencies
-└── README.md
+│
+├── elferspot_listings/           # Main Python package
+│   ├── __init__.py
+│   ├── data_processing/          # Data transformation modules
+│   │   ├── bronze_to_silver.py   # Raw → Clean data
+│   │   └── silver_to_gold.py     # Clean → Model-ready data
+│   ├── models/                   # ML model modules (future)
+│   └── utils/                    # Utility functions
+│       ├── exchange_rates.py     # Currency conversion
+│       └── helpers.py            # Data loading, logging, etc.
+│
+├── notebooks/                    # Analysis notebooks (organized by stage)
+│   ├── 01_data_gathering/        # Web scraping
+│   │   └── 01_scrape_listings.ipynb
+│   ├── 02_data_preparation/      # Data cleaning
+│   │   └── 02_bronze_to_silver.ipynb
+│   ├── 03_feature_engineering/   # Feature creation
+│   │   └── 03_silver_to_gold.ipynb
+│   ├── 04_modeling/              # Model training
+│   │   ├── 04_catboost_model.ipynb
+│   │   ├── 05_ridge_model.ipynb
+│   │   └── 06_model_comparison.ipynb
+│   └── 05_analysis/              # Exploratory analysis
+│       └── 07_price_analysis.ipynb
+│
+├── app/
+│   └── streamlit_app.py          # Interactive dashboard
+│
+├── data/                         # Data storage (gitignored)
+│   ├── raw/                      # Original scraped data
+│   ├── bronze/                   # Raw data layer
+│   ├── silver/                   # Cleaned data layer
+│   └── gold/                     # Model-ready data layer
+│
+├── models/                       # Trained models (gitignored)
+├── results/                      # Analysis outputs (gitignored)
+├── logs/                         # Log files (gitignored)
+└── tests/                        # Unit tests
+    └── test_basic.py
 ```
+
+
+## 📊 Data Pipeline
+
+The project follows a **medallion architecture** with three data quality layers:
+
+### 1. Bronze Layer (Raw Data)
+- **Location:** `data/bronze/`
+- **Content:** Raw scraped data with minimal processing
+- **Notebook:** `01_data_gathering/01_scrape_listings.ipynb`
+
+### 2. Silver Layer (Cleaned Data)
+- **Location:** `data/silver/`
+- **Content:** Cleaned, validated, and standardized data
+- **Processing:** 
+  - Remove duplicates
+  - Standardize formats
+  - Convert currencies to EUR
+  - Clean and validate fields
+- **Module:** `elferspot_listings.data_processing.bronze_to_silver`
+- **Notebook:** `02_data_preparation/02_bronze_to_silver.ipynb`
+
+### 3. Gold Layer (Model-Ready Data)
+- **Location:** `data/gold/`
+- **Content:** Feature-engineered data ready for ML models
+- **Processing:**
+  - Remove outliers
+  - Create log-transformed features
+  - Engineer derived features (listing scores, model categories)
+  - Prepare modeling datasets
+- **Module:** `elferspot_listings.data_processing.silver_to_gold`
+- **Notebook:** `03_feature_engineering/03_silver_to_gold.ipynb`
 
 ## 🚀 Getting Started
 
@@ -48,7 +103,7 @@ elferspot_prod/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/Elferspot-Scraper.git
+git clone https://github.com/jaxver/Elferspot-Scraper.git
 cd Elferspot-Scraper
 ```
 
@@ -57,10 +112,54 @@ cd Elferspot-Scraper
 pip install -r requirements.txt
 ```
 
-3. Set up data directories (data files not included in repository):
-```bash
-mkdir -p data results logs
+3. Configure paths (optional):
+   - Review `config.py` for data paths and settings
+   - Adjust as needed for your environment
+
+### Quick Start Workflow
+
+#### Option 1: Using Python Modules (Recommended for Production)
+
+```python
+from pathlib import Path
+from config import LISTINGS_BRONZE, LISTINGS_SILVER, LISTINGS_GOLD
+from elferspot_listings.data_processing import process_bronze_to_silver, process_silver_to_gold
+
+# Process Bronze → Silver
+process_bronze_to_silver(LISTINGS_BRONZE, LISTINGS_SILVER)
+
+# Process Silver → Gold
+process_silver_to_gold(LISTINGS_SILVER, LISTINGS_GOLD)
 ```
+
+#### Option 2: Using Jupyter Notebooks (Recommended for Learning/Development)
+
+Run notebooks in order:
+
+1. **Data Gathering:**
+   ```
+   notebooks/01_data_gathering/01_scrape_listings.ipynb
+   ```
+
+2. **Data Preparation:**
+   ```
+   notebooks/02_data_preparation/02_bronze_to_silver.ipynb
+   ```
+
+3. **Feature Engineering:**
+   ```
+   notebooks/03_feature_engineering/03_silver_to_gold.ipynb
+   ```
+
+4. **Model Training:**
+   ```
+   notebooks/04_modeling/04_catboost_model.ipynb
+   ```
+
+5. **Analysis:**
+   ```
+   notebooks/05_analysis/07_price_analysis.ipynb
+   ```
 
 ### Running the Dashboard
 
@@ -75,36 +174,57 @@ The dashboard provides:
 - Model-based analytics and comparisons
 - Direct links to individual listings
 
-## 📊 Data Pipeline
-
-1. **Bronze Layer**: Raw scraped data from various sources
-2. **Silver Layer**: Cleaned and standardized data with feature engineering
-3. **Gold Layer**: Final analytical dataset with predictions and scores
-
 ## 🤖 Machine Learning Models
 
 The project implements multiple regression approaches:
 
-- **CatBoost**: Primary model with categorical feature handling
-- **Ridge Regression**: Linear baseline with L2 regularization
-- **ElasticNet**: Combined L1/L2 regularization approach
+### CatBoost (Primary Model)
+- **Notebook:** `04_modeling/04_catboost_model.ipynb`
+- **Features:** Handles categorical variables natively, gradient boosting
+- **Performance:** Typically achieves R² > 0.85
+- **Use Case:** Production price predictions
 
-Models are evaluated using cross-validation with metrics including RMSE, MAE, and R².
+### Ridge Regression
+- **Features:** Linear model with L2 regularization
+- **Use Case:** Baseline comparison, interpretable coefficients
+
+### ElasticNet
+- **Features:** Combined L1/L2 regularization
+- **Use Case:** Feature selection, sparse models
+
+Models are evaluated using:
+- **Cross-validation:** 5-fold CV for robust performance estimates
+- **Metrics:** RMSE, MAE, R²
+- **Feature Importance:** For interpretability
 
 ## 🛠️ Development
+
+### Project Configuration
+
+All configuration is centralized in `config.py`:
+- Data paths (Bronze/Silver/Gold layers)
+- Model hyperparameters
+- Feature definitions
+- Scraping settings
 
 ### Running Tests
 ```bash
 pytest tests/
 ```
 
-### Jupyter Notebooks
+### Code Organization Principles
 
-The `notebooks/` directory contains research and analysis notebooks:
-- Data exploration and visualization
-- Feature engineering experiments
-- Model training and evaluation
-- Outlier detection and analysis
+1. **Separation of Concerns:** Data processing, modeling, and analysis are separate
+2. **Reusability:** Common functions in utility modules
+3. **Reproducibility:** Fixed random seeds, versioned data outputs
+4. **Modularity:** Each notebook/module has a single, clear purpose
+
+### Adding New Features
+
+1. **Data Processing:** Add functions to `elferspot_listings/data_processing/`
+2. **Utilities:** Add to `elferspot_listings/utils/`
+3. **Models:** Add to `elferspot_listings/models/`
+4. **Analysis:** Create new notebooks in appropriate `notebooks/` subdirectory
 
 ## 📝 License
 
@@ -116,6 +236,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Built with Python, pandas, scikit-learn, CatBoost, and Streamlit
 
 ## 📧 Contact
+
+**Jaxver** - [@jaxver](https://github.com/jaxver)
 
 For questions or collaboration opportunities, please open an issue on GitHub.
 
