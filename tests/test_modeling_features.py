@@ -2,6 +2,8 @@ import pandas as pd
 import pytest
 
 from elferspot_listings.modeling.features import (
+    CATEGORICAL_ALLOWLIST,
+    NUMERIC_ALLOWLIST,
     TARGET_COLUMN,
     build_feature_frame,
     select_model_columns,
@@ -24,6 +26,31 @@ def test_select_model_columns_returns_existing_allowlisted_columns_only():
     assert selected.numeric == ["Mileage_km"]
     assert selected.categorical == ["Model"]
     assert selected.features == ["Mileage_km", "Model"]
+
+
+def test_select_model_columns_includes_richer_existing_gold_columns():
+    df = pd.DataFrame(
+        {
+            TARGET_COLUMN: [100000],
+            "Mileage_km": [10000],
+            "log_mileage": [9.21],
+            "Mileage_sq": [100000000],
+            "Transmission": ["Manual"],
+            "Drive": ["RWD"],
+            "Ready to drive": ["Yes"],
+            "Car location": ["Germany"],
+        }
+    )
+
+    selected = select_model_columns(df)
+
+    assert selected.numeric == ["Mileage_km", "log_mileage", "Mileage_sq"]
+    assert selected.categorical == ["Transmission", "Drive", "Ready to drive", "Car location"]
+
+
+def test_allowlists_are_immutable_tuples():
+    assert isinstance(NUMERIC_ALLOWLIST, tuple)
+    assert isinstance(CATEGORICAL_ALLOWLIST, tuple)
 
 
 def test_build_feature_frame_drops_rows_without_target():

@@ -6,16 +6,18 @@ import pandas as pd
 
 TARGET_COLUMN = "price_in_eur"
 
-NUMERIC_ALLOWLIST = [
+NUMERIC_ALLOWLIST = (
     "Mileage_km",
     "Year of construction",
     "listing_score",
     "owners_known",
     "is_fully_restored",
     "Paint-to-Sample (PTS)",
-]
+    "log_mileage",
+    "Mileage_sq",
+)
 
-CATEGORICAL_ALLOWLIST = [
+CATEGORICAL_ALLOWLIST = (
     "Model",
     "Series",
     "model_category",
@@ -24,7 +26,11 @@ CATEGORICAL_ALLOWLIST = [
     "Interior color",
     "Exterior color",
     "Country",
-]
+    "Transmission",
+    "Drive",
+    "Ready to drive",
+    "Car location",
+)
 
 
 @dataclass(frozen=True)
