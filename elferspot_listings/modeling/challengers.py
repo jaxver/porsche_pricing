@@ -9,8 +9,13 @@ import pandas as pd
 _INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
 
 
-def _optional_dependency_error(package_name: str, exc: ImportError) -> RuntimeError:
-    return RuntimeError(f"Install {package_name} with `{_INSTALL_GUIDANCE}`.")
+class OptionalDependencyNotInstalledError(ImportError, RuntimeError):
+    def __init__(self, package_name: str):
+        super().__init__(f"Install {package_name} with `{_INSTALL_GUIDANCE}`.")
+
+
+def _optional_dependency_error(package_name: str, exc: ImportError) -> OptionalDependencyNotInstalledError:
+    return OptionalDependencyNotInstalledError(package_name)
 
 
 def run_tabpfn_regression(X_train, y_train, X_test, random_state: int = 42) -> tuple[object, object, dict]:
@@ -37,6 +42,7 @@ def run_autogluon_regression(
     target: str,
     output_dir: str | Path,
     time_limit: int = 600,
+    artifact_dir: str | Path | None = None,
 ) -> tuple[object, object, pd.DataFrame, dict]:
     start = time.perf_counter()
     try:
@@ -44,7 +50,7 @@ def run_autogluon_regression(
     except ImportError as exc:
         raise _optional_dependency_error("AutoGluon", exc) from exc
 
-    output_path = Path(output_dir) / "autogluon"
+    output_path = Path(artifact_dir) if artifact_dir is not None else Path(output_dir) / "autogluon"
     output_path.mkdir(parents=True, exist_ok=True)
 
     predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(
