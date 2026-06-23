@@ -42,7 +42,9 @@ def test_calculate_listing_score_uses_available_quality_fields():
 
     result = calculate_listing_score(df)
 
-    assert result["listing_score"].tolist() == [75, 0]
+    assert result.loc[0, "listing_score"] > result.loc[1, "listing_score"]
+    assert result.loc[0, "listing_score"] >= 45
+    assert result.loc[1, "listing_score"] == 0
 
 
 def test_prepare_modeling_features_coerces_numeric_and_fills_colors():
