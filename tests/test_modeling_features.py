@@ -1,0 +1,57 @@
+import pandas as pd
+import pytest
+
+from elferspot_listings.modeling.features import (
+    TARGET_COLUMN,
+    build_feature_frame,
+    select_model_columns,
+)
+
+
+def test_select_model_columns_returns_existing_allowlisted_columns_only():
+    df = pd.DataFrame(
+        {
+            TARGET_COLUMN: [100000, 120000],
+            "Mileage_km": [10000, 20000],
+            "Model": ["911", "Cayenne"],
+            "unused": [1, 2],
+        }
+    )
+
+    selected = select_model_columns(df)
+
+    assert selected.target == TARGET_COLUMN
+    assert selected.numeric == ["Mileage_km"]
+    assert selected.categorical == ["Model"]
+    assert selected.features == ["Mileage_km", "Model"]
+
+
+def test_build_feature_frame_drops_rows_without_target():
+    df = pd.DataFrame(
+        {
+            TARGET_COLUMN: [100000, None, 120000],
+            "Mileage_km": [10000, 20000, 30000],
+            "Model": ["911", "Cayenne", "Boxster"],
+        }
+    )
+
+    X, y, selected = build_feature_frame(df)
+
+    assert len(X) == 2
+    assert y.tolist() == [100000.0, 120000.0]
+    assert y.dtype.kind == "f"
+    assert selected.features == ["Mileage_km", "Model"]
+
+
+def test_build_feature_frame_raises_for_missing_target():
+    df = pd.DataFrame({"Mileage_km": [10000]})
+
+    with pytest.raises(ValueError, match="target"):
+        build_feature_frame(df)
+
+
+def test_build_feature_frame_raises_for_no_supported_features():
+    df = pd.DataFrame({TARGET_COLUMN: [100000]})
+
+    with pytest.raises(ValueError, match="supported features"):
+        build_feature_frame(df)
