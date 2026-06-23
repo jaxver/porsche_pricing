@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -26,6 +27,8 @@ def _expected_holdout_indices(frame: pd.DataFrame) -> list[int]:
 
 
 def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monkeypatch):
+    skops_missing = importlib.util.find_spec("skops") is None
+
     def raise_import_error(_selected):
         raise ImportError("skrub is not installed")
 
@@ -40,7 +43,9 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
 
     assert metrics_path.exists()
     assert predictions_path.exists()
-    assert result.skipped_models == {"skrub_ridge": "skrub is not installed"}
+    assert result.skipped_models.get("skrub_ridge") == "skrub is not installed"
+    if skops_missing:
+        assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
     assert set(result.metrics) == {"median", "ridge"}
     assert list(result.predictions.columns) == [
         "row_index",
@@ -58,9 +63,10 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
 
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert set(metrics) == {"median", "ridge"}
-    assert json.loads((tmp_path / "skipped_models.json").read_text(encoding="utf-8")) == {
-        "skrub_ridge": "skrub is not installed"
-    }
+    skipped_payload = json.loads((tmp_path / "skipped_models.json").read_text(encoding="utf-8"))
+    assert skipped_payload.get("skrub_ridge") == "skrub is not installed"
+    if skops_missing:
+        assert skipped_payload.get("ridge_artifact") == "skops is not installed"
 
 
 def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recovers(tmp_path, monkeypatch):
@@ -73,11 +79,15 @@ def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recov
     train_baseline_models(gold_df, tmp_path, random_state=42)
 
     skipped_path = tmp_path / "skipped_models.json"
-    assert skipped_path.exists()
+    skops_missing = importlib.util.find_spec("skops") is None
+    assert skipped_path.exists() == skops_missing
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
-    assert result.skipped_models == {}
-    assert not skipped_path.exists()
+    assert result.skipped_models.get("skrub_ridge") is None
+    if skops_missing:
+        assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
+    else:
+        assert result.skipped_models.get("ridge_artifact") is None
     assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
