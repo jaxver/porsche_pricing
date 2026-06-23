@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import config
+
 
 @dataclass(frozen=True)
 class BenchmarkOutputs:
@@ -62,8 +64,47 @@ def load_metrics(run_dir: str | Path) -> dict | None:
         return None
 
 
+def _load_latest_benchmark_outputs_from_db() -> BenchmarkOutputs | None:
+    db_path = Path(config.BENCHMARK_DB)
+    if not db_path.exists():
+        return None
+
+    try:
+        from elferspot_listings.modeling import benchmark_db
+
+        run_data = benchmark_db.get_latest_run(db_path)
+    except Exception:
+        return None
+
+    if not run_data:
+        return None
+
+    output_dir_value = run_data.get("output_dir")
+    if not output_dir_value:
+        return None
+
+    run_dir = Path(output_dir_value)
+    predictions_path = run_dir / "predictions.csv"
+    if not run_dir.is_dir() or not predictions_path.exists():
+        return None
+
+    predictions = load_predictions(run_dir)
+    if predictions is None:
+        return None
+
+    return BenchmarkOutputs(
+        run_dir=run_dir,
+        predictions=predictions,
+        metrics=run_data.get("metrics"),
+    )
+
+
 def load_latest_benchmark_outputs(results_dir: str | Path = "results/benchmarks") -> BenchmarkOutputs | None:
     """Load predictions and metrics from the newest benchmark run with predictions."""
+
+    benchmark_outputs = _load_latest_benchmark_outputs_from_db()
+    if benchmark_outputs is not None:
+        return benchmark_outputs
 
     benchmark_run = find_latest_benchmark_run(results_dir)
     if benchmark_run is None:
