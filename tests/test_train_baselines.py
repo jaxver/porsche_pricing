@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+from pathlib import Path
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -137,3 +138,35 @@ def test_train_baseline_models_records_non_skops_artifact_failure_reason(tmp_pat
         raise AssertionError("train_baseline_models should fail on non-skops persistence errors")
 
     assert not (artifacts_dir / "ridge.skops").exists()
+
+
+def test_train_baseline_models_rolls_back_previous_artifacts_on_later_save_failure(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    unrelated_path = artifacts_dir / "notes.txt"
+    unrelated_path.write_text("keep me", encoding="utf-8")
+
+    calls: list[str] = []
+
+    def fake_save(model, path):
+        calls.append(Path(path).name)
+        Path(path).write_text("artifact", encoding="utf-8")
+        if len(calls) == 2:
+            raise ValueError("serializer broke late")
+        return Path(path)
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.save_sklearn_model", fake_save)
+
+    try:
+        train_baseline_models(gold_df, tmp_path, random_state=42)
+    except ValueError as exc:
+        assert str(exc) == "serializer broke late"
+    else:
+        raise AssertionError("train_baseline_models should fail on unexpected late persistence errors")
+
+    assert calls == ["ridge.skops", "skrub_ridge.skops"]
+    assert not (artifacts_dir / "ridge.skops").exists()
+    assert not (artifacts_dir / "skrub_ridge.skops").exists()
+    assert unrelated_path.exists()

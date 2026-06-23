@@ -83,6 +83,12 @@ def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]
             artifact_path.unlink()
 
 
+def _cleanup_written_sklearn_artifacts(artifact_paths: list[Path]) -> None:
+    for artifact_path in artifact_paths:
+        if artifact_path.exists():
+            artifact_path.unlink()
+
+
 def train_baseline_models(
     gold_df: pd.DataFrame,
     output_dir: str | Path,
@@ -103,6 +109,7 @@ def train_baseline_models(
     catboost_trained = False
     baseline_artifact_models: dict[str, Any] = {}
     saved_artifact_models: set[str] = set()
+    saved_artifact_paths: list[Path] = []
 
     for model_name, model in (
         ("median", MedianRegressor()),
@@ -142,9 +149,15 @@ def train_baseline_models(
     if not catboost_trained and catboost_artifact_path.exists():
         catboost_artifact_path.unlink()
 
-    for model_name, model in baseline_artifact_models.items():
-        if _save_sklearn_artifact(model_name, model, artifacts_dir, skipped_models):
-            saved_artifact_models.add(model_name)
+    try:
+        for model_name, model in baseline_artifact_models.items():
+            artifact_path = artifacts_dir / f"{model_name}.skops"
+            if _save_sklearn_artifact(model_name, model, artifacts_dir, skipped_models):
+                saved_artifact_models.add(model_name)
+                saved_artifact_paths.append(artifact_path)
+    except Exception:
+        _cleanup_written_sklearn_artifacts(saved_artifact_paths)
+        raise
 
     _cleanup_stale_sklearn_artifacts(artifacts_dir, saved_artifact_models)
 
