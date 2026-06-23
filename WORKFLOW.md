@@ -16,6 +16,8 @@ Then run the notebook sequence below.
 
 ## Curated Notebook Sequence
 
+This curated sequence is the recommended portfolio path and supersedes older research-notebook handoff text that points at `03_silver_to_gold.ipynb`.
+
 1. `notebooks/02_data_preparation/01_listings_bronzetosilver.ipynb`
 2. `notebooks/02_data_preparation/02_bronze_to_silver.ipynb`
 3. `notebooks/03_feature_engineering/01_silver_to_gold_walkthrough.ipynb`
@@ -56,7 +58,7 @@ The Streamlit app should read benchmark outputs when they exist and stay usable 
 streamlit run app/streamlit_app.py
 ```
 
-The app is presentation-only; it should not perform training on import.
+The app expects `data/all_listings_gold.xlsx` or an equivalent Gold export to exist before launch. The app is presentation-only; it should not perform training on import.
 
 ## Generated Output Policy
 

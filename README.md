@@ -55,7 +55,7 @@ TabPFN may download checkpoints the first time it is used. AutoGluon can create 
 
 ## Notebook Workflow
 
-Use the curated sequence below for the main portfolio path:
+Use the curated sequence below for the main portfolio path. This is the recommended portfolio workflow and supersedes older research-notebook handoff text that points at `03_silver_to_gold.ipynb`.
 
 1. `notebooks/02_data_preparation/01_listings_bronzetosilver.ipynb`
 2. `notebooks/02_data_preparation/02_bronze_to_silver.ipynb`
@@ -92,7 +92,7 @@ Launch the Streamlit app with:
 streamlit run app/streamlit_app.py
 ```
 
-The dashboard is intended to present the cleaned data, benchmark outputs, and model comparisons without training anything on import.
+The dashboard expects `data/all_listings_gold.xlsx` or an equivalent Gold export to exist before launch. It is intended to present the cleaned data, benchmark outputs, and model comparisons without training anything on import.
 
 ## License
 
