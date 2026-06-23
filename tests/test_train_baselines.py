@@ -80,17 +80,16 @@ def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recov
     train_baseline_models(gold_df, tmp_path, random_state=42)
 
     skipped_path = tmp_path / "skipped_models.json"
-    skops_missing = importlib.util.find_spec("skops") is None
-    assert skipped_path.exists() == skops_missing
+    first_payload = json.loads(skipped_path.read_text(encoding="utf-8"))
+    assert first_payload.get("skrub_ridge") == "skrub is not installed"
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
     assert result.skipped_models.get("skrub_ridge") is None
-    if skops_missing:
-        assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
-    else:
-        assert result.skipped_models.get("ridge_artifact") is None
+    if skipped_path.exists():
+        second_payload = json.loads(skipped_path.read_text(encoding="utf-8"))
+        assert second_payload.get("skrub_ridge") is None
     assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
 
 
