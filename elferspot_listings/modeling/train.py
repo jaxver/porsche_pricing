@@ -12,6 +12,7 @@ from elferspot_listings.evaluation.metrics import regression_metrics
 from elferspot_listings.evaluation.reports import write_benchmark_report
 
 from .baselines import MedianRegressor, build_ridge_pipeline, build_skrub_ridge_pipeline
+from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .features import build_feature_frame
 
 
@@ -40,10 +41,27 @@ def _score_model(model: Any, X_train: pd.DataFrame, y_train: pd.Series, X_test: 
     return predictions, metrics
 
 
+def _score_catboost_model(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> tuple[pd.DataFrame, dict[str, float]]:
+    predicted = predict_catboost_eur(model, X_test)
+
+    predictions = pd.DataFrame(
+        {
+            "row_index": X_test.index,
+            "actual_price_eur": y_test.to_numpy(dtype=float),
+            "predicted_price_eur": predicted,
+        }
+    )
+    predictions["model_name"] = ""
+    predictions["residual_eur"] = predictions["actual_price_eur"] - predictions["predicted_price_eur"]
+    metrics = regression_metrics(y_test, predicted)
+    return predictions, metrics
+
+
 def train_baseline_models(
     gold_df: pd.DataFrame,
     output_dir: str | Path,
     random_state: int = 42,
+    train_catboost: bool = False,
 ) -> BenchmarkResult:
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)
@@ -73,6 +91,18 @@ def train_baseline_models(
         model_predictions = model_predictions.assign(model_name="skrub_ridge")
         metrics["skrub_ridge"] = model_metrics
         prediction_frames.append(model_predictions)
+
+    if train_catboost:
+        try:
+            catboost_model = fit_catboost_regressor(X_train, y_train, selected, random_state=random_state)
+        except ImportError:
+            skipped_models["catboost"] = "catboost is not installed"
+        else:
+            model_predictions, model_metrics = _score_catboost_model(catboost_model, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="catboost")
+            metrics["catboost"] = model_metrics
+            prediction_frames.append(model_predictions)
+            save_catboost_model(catboost_model, output_path / "artifacts" / "catboost.cbm")
 
     predictions = pd.concat(prediction_frames, ignore_index=True)
     predictions = predictions[["row_index", "model_name", "actual_price_eur", "predicted_price_eur", "residual_eur"]]
