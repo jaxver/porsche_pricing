@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from elferspot_listings.modeling.baselines import MedianRegressor
+from elferspot_listings.modeling.persistence import SkopsNotInstalledError
 from elferspot_listings.modeling.train import train_baseline_models
 
 
@@ -91,3 +92,45 @@ def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recov
     else:
         assert result.skipped_models.get("ridge_artifact") is None
     assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+
+
+def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_unavailable(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (artifacts_dir / "ridge.skops").write_text("stale ridge", encoding="utf-8")
+    (artifacts_dir / "skrub_ridge.skops").write_text("stale skrub", encoding="utf-8")
+
+    def raise_skops_missing(*_args, **_kwargs):
+        raise SkopsNotInstalledError("skops is not installed")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.save_sklearn_model", raise_skops_missing)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42)
+
+    assert not (artifacts_dir / "ridge.skops").exists()
+    assert not (artifacts_dir / "skrub_ridge.skops").exists()
+    assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
+    assert result.skipped_models.get("skrub_ridge_artifact") == "skops is not installed"
+
+
+def test_train_baseline_models_records_non_skops_artifact_failure_reason(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (artifacts_dir / "ridge.skops").write_text("stale ridge", encoding="utf-8")
+
+    def raise_value_error(*_args, **_kwargs):
+        raise ValueError("serializer broke")
+
+    def raise_import_error(_selected):
+        raise ImportError("skrub is not installed")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", raise_import_error)
+    monkeypatch.setattr("elferspot_listings.modeling.train.save_sklearn_model", raise_value_error)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42)
+
+    assert not (artifacts_dir / "ridge.skops").exists()
+    assert result.skipped_models.get("ridge_artifact") == "ValueError: serializer broke"

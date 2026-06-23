@@ -5,8 +5,15 @@ from pathlib import Path
 from typing import Any
 
 
+class SkopsNotInstalledError(ImportError):
+    pass
+
+
 def _skops_io():
-    import skops.io as sio
+    try:
+        import skops.io as sio
+    except ModuleNotFoundError as exc:
+        raise SkopsNotInstalledError("skops is not installed") from exc
 
     return sio
 

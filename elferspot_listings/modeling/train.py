@@ -14,7 +14,7 @@ from elferspot_listings.evaluation.reports import write_benchmark_report
 from .baselines import MedianRegressor, build_ridge_pipeline, build_skrub_ridge_pipeline
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .features import build_feature_frame
-from .persistence import save_sklearn_model, write_model_card
+from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model_card
 
 
 @dataclass(frozen=True)
@@ -58,12 +58,30 @@ def _score_catboost_model(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -
     return predictions, metrics
 
 
-def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, skipped_models: dict[str, str]) -> None:
+def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, skipped_models: dict[str, str]) -> bool:
     artifact_path = artifacts_dir / f"{model_name}.skops"
     try:
         save_sklearn_model(model, artifact_path)
-    except ImportError:
+    except SkopsNotInstalledError:
         skipped_models[f"{model_name}_artifact"] = "skops is not installed"
+        if artifact_path.exists():
+            artifact_path.unlink()
+        return False
+    except Exception as exc:
+        skipped_models[f"{model_name}_artifact"] = f"{type(exc).__name__}: {exc}"
+        if artifact_path.exists():
+            artifact_path.unlink()
+        return False
+    return True
+
+
+def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
+    for model_name in ("ridge", "skrub_ridge"):
+        if model_name in saved_models:
+            continue
+        artifact_path = artifacts_dir / f"{model_name}.skops"
+        if artifact_path.exists():
+            artifact_path.unlink()
 
 
 def train_baseline_models(
@@ -85,6 +103,7 @@ def train_baseline_models(
     catboost_artifact_path = output_path / "artifacts" / "catboost.cbm"
     catboost_trained = False
     baseline_artifact_models: dict[str, Any] = {}
+    saved_artifact_models: set[str] = set()
 
     for model_name, model in (
         ("median", MedianRegressor()),
@@ -125,7 +144,10 @@ def train_baseline_models(
         catboost_artifact_path.unlink()
 
     for model_name, model in baseline_artifact_models.items():
-        _save_sklearn_artifact(model_name, model, artifacts_dir, skipped_models)
+        if _save_sklearn_artifact(model_name, model, artifacts_dir, skipped_models):
+            saved_artifact_models.add(model_name)
+
+    _cleanup_stale_sklearn_artifacts(artifacts_dir, saved_artifact_models)
 
     card_candidates = [name for name in ("ridge", "skrub_ridge", "median") if name in metrics]
     if card_candidates:
