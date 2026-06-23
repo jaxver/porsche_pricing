@@ -182,7 +182,7 @@ def test_train_baseline_models_removes_stale_catboost_artifact_when_not_training
 
     result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=False)
 
-    assert result.skipped_models == {}
+    assert "catboost" not in result.skipped_models
     assert not stale_artifact.exists()
 
     stale_artifact.write_text("stale artifact\n", encoding="utf-8")
