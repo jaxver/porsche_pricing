@@ -27,6 +27,7 @@ optuna>=3.0.0
 
 # Development
 pytest>=7.2.0
+nbstripout>=0.7.1
 jupyter>=1.0.0
 ipykernel>=6.20.0
 

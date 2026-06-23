@@ -84,6 +84,23 @@ Benchmark runs write metrics, predictions, and model artifacts into `results/ben
 
 Keep `data/`, `results/`, `logs/`, `models/`, `catboost_info/`, and generated benchmark artifacts uncommitted unless a specific sanitized artifact is intentionally published.
 
+Notebook outputs are stripped by default before commit. This protects local paths such as `C:\Users\...`, `\\NAS_...`, `/Users/...`, `/home/...`, temp directories, tracebacks, and rich-output metadata from leaking into git history.
+
+Use the notebook hygiene check before publishing changes:
+
+```powershell
+python scripts/check_notebook_hygiene.py notebooks
+```
+
+Clear notebook outputs when needed:
+
+```powershell
+jupyter nbconvert --clear-output --inplace notebooks/path/to/notebook.ipynb
+nbstripout notebooks/path/to/notebook.ipynb
+```
+
+If a demo output is intentionally worth keeping, set that cell metadata to `{"keep_output": true}` and manually review it for private paths or data before committing. Prefer curated screenshots or exported summaries in docs over committing arbitrary executed notebook output.
+
 ## Dashboard
 
 Launch the Streamlit app with:

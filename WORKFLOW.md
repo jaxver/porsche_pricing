@@ -23,8 +23,9 @@ This curated sequence is the recommended portfolio path and supersedes older res
 3. `notebooks/03_feature_engineering/01_silver_to_gold_walkthrough.ipynb`
 4. `notebooks/04_modeling/01_baseline_sklearn_skrub.ipynb`
 5. `notebooks/04_modeling/02_catboost_benchmark.ipynb`
-6. `notebooks/04_modeling/04_model_comparison_report.ipynb`
-7. `notebooks/05_analysis/01_market_insights.ipynb`
+6. `notebooks/04_modeling/03_cutting_edge_challengers.ipynb`
+7. `notebooks/04_modeling/04_model_comparison_report.ipynb`
+8. `notebooks/05_analysis/01_market_insights.ipynb`
 
 If you are refreshing raw data first, start with the scraping notebook and then continue with the curated sequence.
 
@@ -63,6 +64,14 @@ The app expects `data/all_listings_gold.xlsx` or an equivalent Gold export to ex
 ## Generated Output Policy
 
 Keep `data/`, `results/`, `logs/`, `models/`, `catboost_info/`, and generated benchmark artifacts out of git unless a specific sanitized artifact is intentionally published.
+
+Commit notebooks as reproducible source, not arbitrary executed state:
+
+- Strip normal code-cell outputs and execution counts before committing.
+- Keep curated demo visuals as screenshots, exported summaries, or explicit `keep_output` cells only after manual review.
+- Run `python scripts/check_notebook_hygiene.py notebooks` before publishing notebook changes.
+- Use `jupyter nbconvert --clear-output --inplace <notebook>` or `nbstripout <notebook>` to clear outputs.
+- Treat absolute local paths, NAS paths, temp paths, tracebacks, and rich display metadata as publish blockers.
 
 ## Notes
 
