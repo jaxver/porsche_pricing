@@ -101,3 +101,16 @@ def test_write_benchmark_report_writes_metrics_json():
         with output_path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         assert data == {"mae_eur": 15.0, "mape": 0.1}
+
+
+def test_write_benchmark_report_sanitizes_non_finite_values():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_path = write_benchmark_report(
+            {"mape": float("inf"), "low": float("-inf"), "missing": float("nan")},
+            Path(temp_dir),
+        )
+
+        with output_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        assert data == {"mape": None, "low": None, "missing": None}
