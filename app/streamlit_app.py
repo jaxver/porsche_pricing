@@ -1,13 +1,17 @@
-import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 from datetime import datetime
-import plotly.express as px
+from pathlib import Path
+
+from elferspot_listings.utils.dashboard_data import (
+    find_latest_benchmark_run,
+    load_latest_metrics,
+    load_latest_predictions,
+)
 
 DATA_PATH = os.path.join('data', 'all_listings_gold.xlsx')
+BENCHMARK_RESULTS_PATH = Path('results') / 'benchmarks'
 
-@st.cache_data
 def load_data(path=DATA_PATH):
     if path.lower().endswith('.xlsx'):
         df = pd.read_excel(path)
@@ -40,11 +44,58 @@ def load_data(path=DATA_PATH):
     return df
 
 
+def _metrics_to_frame(metrics: dict) -> pd.DataFrame:
+    rows = []
+    for model_name, values in metrics.items():
+        if isinstance(values, dict):
+            row = {'model_name': model_name, **values}
+        else:
+            row = {'model_name': model_name, 'value': values}
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def main():
+    import plotly.express as px
+    import streamlit as st
+
     st.set_page_config(layout='wide', page_title='Porsche Listings Browser')
     st.title('Porsche Listings Dashboard')
 
-    df = load_data()
+    benchmark_run = find_latest_benchmark_run(BENCHMARK_RESULTS_PATH)
+    benchmark_predictions = load_latest_predictions(BENCHMARK_RESULTS_PATH)
+    benchmark_metrics = load_latest_metrics(BENCHMARK_RESULTS_PATH)
+
+    st.subheader('Latest benchmark run')
+    if benchmark_run is None:
+        st.info('No benchmark predictions found under results/benchmarks.')
+    else:
+        st.caption(f'Loaded from {benchmark_run}')
+
+        st.markdown('**Metrics**')
+        if benchmark_metrics:
+            if isinstance(benchmark_metrics, dict):
+                metrics_frame = _metrics_to_frame(benchmark_metrics)
+                st.dataframe(metrics_frame, use_container_width=True)
+            else:
+                st.json(benchmark_metrics)
+        else:
+            st.info('No metrics.json found for the latest benchmark run.')
+
+        st.markdown('**Predictions**')
+        if benchmark_predictions is not None and not benchmark_predictions.empty:
+            prediction_columns = [
+                column
+                for column in ['row_index', 'model_name', 'actual_price_eur', 'predicted_price_eur', 'residual_eur']
+                if column in benchmark_predictions.columns
+            ]
+            display_predictions = benchmark_predictions[prediction_columns] if prediction_columns else benchmark_predictions
+            st.dataframe(display_predictions.head(200), use_container_width=True)
+        else:
+            st.info('No predictions.csv found for the latest benchmark run.')
+
+    load_data_cached = st.cache_data(load_data)
+    df = load_data_cached()
 
     # Sidebar filters
     st.sidebar.header('Filters')
