@@ -191,6 +191,50 @@ def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_fra
     assert "price_in_eur" in captured["test_df"].columns
 
 
+def test_prepare_tabpfn_features_ignores_test_only_categories():
+    from elferspot_listings.modeling.train import _prepare_tabpfn_features
+
+    X_train = pd.DataFrame(
+        {
+            "model_category": ["911", "Cayman"],
+            "color": ["red", None],
+            "Mileage_km": [10000.0, None],
+        },
+        index=[10, 11],
+    )
+    X_test = pd.DataFrame(
+        {
+            "model_category": ["911 GT3"],
+            "color": ["red"],
+            "Mileage_km": [30000.0],
+        },
+        index=[20],
+    )
+
+    prepared_train, prepared_test = _prepare_tabpfn_features(X_train, X_test)
+
+    assert set(prepared_train.columns) == set(prepared_test.columns)
+    assert not any("911 GT3" in column for column in prepared_train.columns)
+    assert prepared_train.index.tolist() == [10, 11]
+    assert prepared_test.index.tolist() == [20]
+    assert not prepared_train.isna().any().any()
+    assert not prepared_test.isna().any().any()
+
+
+def test_train_baseline_models_cleans_stale_autogluon_output_when_not_running(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    stale_dir = tmp_path / "autogluon"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "leaderboard.csv").write_text("stale", encoding="utf-8")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=False)
+
+    assert "autogluon" not in result.metrics
+    assert not stale_dir.exists()
+
+
 
 def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recovers(tmp_path, monkeypatch):
     gold_df = _gold_frame()

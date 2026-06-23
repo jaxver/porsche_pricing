@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -75,8 +76,25 @@ def _score_predictions(model_name: str, y_test: pd.Series, predicted: Any) -> tu
 
 
 def _prepare_tabpfn_features(X_train: pd.DataFrame, X_test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    combined = pd.get_dummies(pd.concat([X_train, X_test]), dummy_na=True).fillna(0)
-    return combined.loc[X_train.index], combined.loc[X_test.index]
+    train_encoded = pd.get_dummies(X_train, dummy_na=True)
+    test_encoded = pd.get_dummies(X_test, dummy_na=True)
+
+    train_fill_values = train_encoded.median(numeric_only=True).fillna(0)
+    train_encoded = train_encoded.fillna(train_fill_values)
+
+    test_encoded = test_encoded.reindex(columns=train_encoded.columns, fill_value=0)
+    test_encoded = test_encoded.fillna(train_fill_values)
+
+    return train_encoded, test_encoded
+
+
+def _cleanup_autogluon_output(output_path: Path, autogluon_trained: bool) -> None:
+    if autogluon_trained:
+        return
+    if output_path.is_dir():
+        shutil.rmtree(output_path)
+    elif output_path.exists():
+        output_path.unlink()
 
 
 def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, skipped_models: dict[str, str]) -> bool:
@@ -203,6 +221,8 @@ def train_baseline_models(
 
     if not catboost_trained and catboost_artifact_path.exists():
         catboost_artifact_path.unlink()
+
+    _cleanup_autogluon_output(output_path / "autogluon", "autogluon" in metrics)
 
     try:
         for model_name, model in baseline_artifact_models.items():
