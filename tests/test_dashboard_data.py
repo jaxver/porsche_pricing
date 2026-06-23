@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -15,12 +16,6 @@ from elferspot_listings.utils.dashboard_data import (
     load_metrics,
     load_predictions,
 )
-
-
-def _patch_benchmark_db(monkeypatch, db_path: Path) -> None:
-    monkeypatch.setattr(dashboard_data.config, "BENCHMARK_DB", db_path)
-
-
 def _write_run(
     run_dir: Path,
     *,
@@ -44,9 +39,8 @@ def _write_run(
     return run_dir
 
 
-def test_find_latest_benchmark_run_uses_predictions_mtime_and_keeps_metrics_in_same_run(tmp_path, monkeypatch):
+def test_find_latest_benchmark_run_uses_predictions_mtime_and_keeps_metrics_in_same_run(tmp_path):
     results_dir = tmp_path / "results" / "benchmarks"
-    _patch_benchmark_db(monkeypatch, tmp_path / "missing" / "benchmark_runs.db")
 
     _write_run(
         results_dir / "2026-01-01",
@@ -80,9 +74,8 @@ def test_find_latest_benchmark_run_uses_predictions_mtime_and_keeps_metrics_in_s
     assert outputs.metrics == {"ridge": {"mae_eur": 8.0}, "catboost": {"mae_eur": 6.0}}
 
 
-def test_dashboard_helpers_return_none_when_predictions_are_missing(tmp_path, monkeypatch):
+def test_dashboard_helpers_return_none_when_predictions_are_missing(tmp_path):
     results_dir = tmp_path / "results" / "benchmarks"
-    _patch_benchmark_db(monkeypatch, tmp_path / "missing" / "benchmark_runs.db")
     metrics_only_run = results_dir / "2026-01-05"
     metrics_only_run.mkdir(parents=True, exist_ok=True)
     (metrics_only_run / "metrics.json").write_text(json.dumps({"ridge": {"mae_eur": 1.0}}), encoding="utf-8")
@@ -92,7 +85,6 @@ def test_dashboard_helpers_return_none_when_predictions_are_missing(tmp_path, mo
 
 
 def test_load_latest_benchmark_outputs_uses_one_resolved_run_for_both_artifacts(monkeypatch):
-    _patch_benchmark_db(monkeypatch, Path("C:/nonexistent/benchmark_runs.db"))
     run_dir = Path("/tmp/benchmark-run")
     calls: list[tuple[str, Path]] = []
 
@@ -127,7 +119,6 @@ def test_load_latest_benchmark_outputs_uses_one_resolved_run_for_both_artifacts(
 def test_load_latest_benchmark_outputs_prefers_sqlite_run(tmp_path, monkeypatch):
     results_dir = tmp_path / "results" / "benchmarks"
     db_path = tmp_path / "results" / "benchmarks" / "benchmark_runs.db"
-    _patch_benchmark_db(monkeypatch, db_path)
 
     run_dir = results_dir / "sqlite-run"
     run_id = benchmark_db.insert_run(
@@ -162,6 +153,15 @@ def test_load_latest_benchmark_outputs_prefers_sqlite_run(tmp_path, monkeypatch)
         ]
     )
     expected_predictions.to_csv(run_dir / "predictions.csv", index=False)
+    os.utime(run_dir / "predictions.csv", (1_000.0, 1_000.0))
+    os.utime(run_dir, (1_000.0, 1_000.0))
+
+    fallback_run = _write_run(
+        results_dir / "filesystem-run",
+        prediction_rows=[{"row_index": 9, "model_name": "ridge", "predicted_price_eur": 999.0}],
+        metrics={"ridge": {"mae_eur": 999.0}},
+        timestamp=9_999.0,
+    )
 
     outputs = load_latest_benchmark_outputs(results_dir)
 
@@ -178,6 +178,79 @@ def test_load_latest_benchmark_outputs_prefers_sqlite_run(tmp_path, monkeypatch)
             "within_15": 0.8,
         }
     }
+    assert find_latest_benchmark_run(results_dir) == fallback_run
+
+
+def test_load_latest_benchmark_outputs_falls_back_to_filesystem_when_sqlite_predictions_missing(tmp_path):
+    results_dir = tmp_path / "results" / "benchmarks"
+    db_path = results_dir / "benchmark_runs.db"
+
+    run_dir = results_dir / "sqlite-run"
+    run_id = benchmark_db.insert_run(
+        db_path,
+        random_state=42,
+        train_catboost=True,
+        run_tabpfn=False,
+        run_autogluon=False,
+        autogluon_tl=600,
+        output_dir=run_dir,
+        duration_sec=12.5,
+        git_commit="deadbeef",
+    )
+    benchmark_db.insert_metrics(
+        db_path,
+        run_id,
+        {
+            "ridge": {
+                "mae_eur": 11.0,
+                "median_ae": 9.0,
+                "mape": 0.12,
+                "within_10": 0.7,
+                "within_15": 0.8,
+            }
+        },
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    competing_run = _write_run(
+        results_dir / "filesystem-run",
+        prediction_rows=[{"row_index": 9, "model_name": "ridge", "predicted_price_eur": 999.0}],
+        metrics={"ridge": {"mae_eur": 999.0}},
+        timestamp=9_999.0,
+    )
+
+    outputs = load_latest_benchmark_outputs(results_dir)
+
+    assert outputs is not None
+    assert outputs.run_dir == competing_run
+    assert outputs.predictions is not None
+    assert list(outputs.predictions["predicted_price_eur"]) == [999.0]
+    assert outputs.metrics == {"ridge": {"mae_eur": 999.0}}
+
+
+def test_load_latest_benchmark_outputs_falls_back_when_sqlite_lookup_fails(tmp_path, monkeypatch):
+    results_dir = tmp_path / "results" / "benchmarks"
+    db_path = results_dir / "benchmark_runs.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("", encoding="utf-8")
+
+    fallback_run = _write_run(
+        results_dir / "filesystem-run",
+        prediction_rows=[{"row_index": 4, "model_name": "ridge", "predicted_price_eur": 444.0}],
+        metrics={"ridge": {"mae_eur": 444.0}},
+        timestamp=8_000.0,
+    )
+
+    def boom(_db_path):
+        raise sqlite3.Error("boom")
+
+    monkeypatch.setattr("elferspot_listings.modeling.benchmark_db.get_latest_run", boom)
+
+    outputs = load_latest_benchmark_outputs(results_dir)
+
+    assert outputs is not None
+    assert outputs.run_dir == fallback_run
+    assert outputs.metrics == {"ridge": {"mae_eur": 444.0}}
 
 
 def test_latest_run_wrappers_are_not_exported():

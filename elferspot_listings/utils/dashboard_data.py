@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
-import config
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,8 +66,20 @@ def load_metrics(run_dir: str | Path) -> dict | None:
         return None
 
 
-def _load_latest_benchmark_outputs_from_db() -> BenchmarkOutputs | None:
-    db_path = Path(config.BENCHMARK_DB)
+def _load_latest_benchmark_outputs_from_filesystem(results_dir: str | Path) -> BenchmarkOutputs | None:
+    benchmark_run = find_latest_benchmark_run(results_dir)
+    if benchmark_run is None:
+        return None
+
+    return BenchmarkOutputs(
+        run_dir=benchmark_run,
+        predictions=load_predictions(benchmark_run),
+        metrics=load_metrics(benchmark_run),
+    )
+
+
+def _load_latest_benchmark_outputs_from_db(results_dir: str | Path) -> BenchmarkOutputs | None:
+    db_path = Path(results_dir) / "benchmark_runs.db"
     if not db_path.exists():
         return None
 
@@ -73,7 +87,7 @@ def _load_latest_benchmark_outputs_from_db() -> BenchmarkOutputs | None:
         from elferspot_listings.modeling import benchmark_db
 
         run_data = benchmark_db.get_latest_run(db_path)
-    except Exception:
+    except (ImportError, OSError, sqlite3.Error):
         return None
 
     if not run_data:
@@ -81,16 +95,20 @@ def _load_latest_benchmark_outputs_from_db() -> BenchmarkOutputs | None:
 
     output_dir_value = run_data.get("output_dir")
     if not output_dir_value:
-        return None
+        return _load_latest_benchmark_outputs_from_filesystem(results_dir)
 
     run_dir = Path(output_dir_value)
     predictions_path = run_dir / "predictions.csv"
-    if not run_dir.is_dir() or not predictions_path.exists():
-        return None
+    if not run_dir.is_dir():
+        return _load_latest_benchmark_outputs_from_filesystem(results_dir)
 
     predictions = load_predictions(run_dir)
     if predictions is None:
-        return None
+        logger.warning("SQLite benchmark run %s is missing readable predictions.csv", run_dir)
+        benchmark_outputs = _load_latest_benchmark_outputs_from_filesystem(results_dir)
+        if benchmark_outputs is None:
+            return None
+        return benchmark_outputs
 
     return BenchmarkOutputs(
         run_dir=run_dir,
@@ -100,9 +118,9 @@ def _load_latest_benchmark_outputs_from_db() -> BenchmarkOutputs | None:
 
 
 def load_latest_benchmark_outputs(results_dir: str | Path = "results/benchmarks") -> BenchmarkOutputs | None:
-    """Load predictions and metrics from the newest benchmark run with predictions."""
+    """Load benchmark outputs, preferring SQLite-backed runs when available."""
 
-    benchmark_outputs = _load_latest_benchmark_outputs_from_db()
+    benchmark_outputs = _load_latest_benchmark_outputs_from_db(results_dir)
     if benchmark_outputs is not None:
         return benchmark_outputs
 
