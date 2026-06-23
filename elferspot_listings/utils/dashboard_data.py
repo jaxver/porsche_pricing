@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
+
+
+@dataclass(frozen=True)
+class BenchmarkOutputs:
+    run_dir: Path
+    predictions: pd.DataFrame | None
+    metrics: dict | None
 
 
 def find_latest_benchmark_run(results_dir: str | Path = "results/benchmarks") -> Path | None:
@@ -34,29 +42,49 @@ def find_latest_benchmark_run(results_dir: str | Path = "results/benchmarks") ->
     return latest_run
 
 
-def load_latest_predictions(results_dir: str | Path = "results/benchmarks") -> pd.DataFrame | None:
-    """Load predictions from the latest benchmark run, if available."""
+def load_predictions(run_dir: str | Path) -> pd.DataFrame | None:
+    """Load predictions from a resolved benchmark run directory."""
 
-    benchmark_run = find_latest_benchmark_run(results_dir)
-    if benchmark_run is None:
-        return None
-
-    predictions_path = benchmark_run / "predictions.csv"
+    predictions_path = Path(run_dir) / "predictions.csv"
     try:
         return pd.read_csv(predictions_path)
     except (OSError, pd.errors.EmptyDataError, ValueError, UnicodeDecodeError):
         return None
 
 
-def load_latest_metrics(results_dir: str | Path = "results/benchmarks") -> dict | None:
-    """Load metrics from the same benchmark run as the latest predictions."""
+def load_metrics(run_dir: str | Path) -> dict | None:
+    """Load metrics from a resolved benchmark run directory."""
+
+    metrics_path = Path(run_dir) / "metrics.json"
+    try:
+        return json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def load_latest_benchmark_outputs(results_dir: str | Path = "results/benchmarks") -> BenchmarkOutputs | None:
+    """Load predictions and metrics from the newest benchmark run with predictions."""
 
     benchmark_run = find_latest_benchmark_run(results_dir)
     if benchmark_run is None:
         return None
 
-    metrics_path = benchmark_run / "metrics.json"
-    try:
-        return json.loads(metrics_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    return BenchmarkOutputs(
+        run_dir=benchmark_run,
+        predictions=load_predictions(benchmark_run),
+        metrics=load_metrics(benchmark_run),
+    )
+
+
+def load_latest_predictions(results_dir: str | Path = "results/benchmarks") -> pd.DataFrame | None:
+    """Backward-compatible convenience wrapper for loading latest predictions."""
+
+    outputs = load_latest_benchmark_outputs(results_dir)
+    return None if outputs is None else outputs.predictions
+
+
+def load_latest_metrics(results_dir: str | Path = "results/benchmarks") -> dict | None:
+    """Backward-compatible convenience wrapper for loading latest metrics."""
+
+    outputs = load_latest_benchmark_outputs(results_dir)
+    return None if outputs is None else outputs.metrics

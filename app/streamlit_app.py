@@ -4,9 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from elferspot_listings.utils.dashboard_data import (
-    find_latest_benchmark_run,
-    load_latest_metrics,
-    load_latest_predictions,
+    load_latest_benchmark_outputs,
 )
 
 DATA_PATH = os.path.join('data', 'all_listings_gold.xlsx')
@@ -62,34 +60,33 @@ def main():
     st.set_page_config(layout='wide', page_title='Porsche Listings Browser')
     st.title('Porsche Listings Dashboard')
 
-    benchmark_run = find_latest_benchmark_run(BENCHMARK_RESULTS_PATH)
-    benchmark_predictions = load_latest_predictions(BENCHMARK_RESULTS_PATH)
-    benchmark_metrics = load_latest_metrics(BENCHMARK_RESULTS_PATH)
+    benchmark_outputs = load_latest_benchmark_outputs(BENCHMARK_RESULTS_PATH)
 
     st.subheader('Latest benchmark run')
-    if benchmark_run is None:
+    if benchmark_outputs is None:
         st.info('No benchmark predictions found under results/benchmarks.')
     else:
-        st.caption(f'Loaded from {benchmark_run}')
+        st.caption(f'Loaded from {benchmark_outputs.run_dir}')
 
         st.markdown('**Metrics**')
-        if benchmark_metrics:
-            if isinstance(benchmark_metrics, dict):
-                metrics_frame = _metrics_to_frame(benchmark_metrics)
+        if benchmark_outputs.metrics:
+            if isinstance(benchmark_outputs.metrics, dict):
+                metrics_frame = _metrics_to_frame(benchmark_outputs.metrics)
                 st.dataframe(metrics_frame, use_container_width=True)
             else:
-                st.json(benchmark_metrics)
+                st.json(benchmark_outputs.metrics)
         else:
             st.info('No metrics.json found for the latest benchmark run.')
 
         st.markdown('**Predictions**')
-        if benchmark_predictions is not None and not benchmark_predictions.empty:
+        predictions = benchmark_outputs.predictions
+        if predictions is not None and not predictions.empty:
             prediction_columns = [
                 column
                 for column in ['row_index', 'model_name', 'actual_price_eur', 'predicted_price_eur', 'residual_eur']
-                if column in benchmark_predictions.columns
+                if column in predictions.columns
             ]
-            display_predictions = benchmark_predictions[prediction_columns] if prediction_columns else benchmark_predictions
+            display_predictions = predictions[prediction_columns] if prediction_columns else predictions
             st.dataframe(display_predictions.head(200), use_container_width=True)
         else:
             st.info('No predictions.csv found for the latest benchmark run.')

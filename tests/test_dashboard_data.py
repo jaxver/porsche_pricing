@@ -8,9 +8,13 @@ from pathlib import Path
 import pandas as pd
 
 from elferspot_listings.utils.dashboard_data import (
+    BenchmarkOutputs,
     find_latest_benchmark_run,
     load_latest_metrics,
+    load_latest_benchmark_outputs,
     load_latest_predictions,
+    load_metrics,
+    load_predictions,
 )
 
 
@@ -86,3 +90,34 @@ def test_dashboard_helpers_return_none_when_predictions_are_missing():
         assert find_latest_benchmark_run(results_dir) is None
         assert load_latest_predictions(results_dir) is None
         assert load_latest_metrics(results_dir) is None
+
+
+def test_load_latest_benchmark_outputs_uses_one_resolved_run_for_both_artifacts(monkeypatch):
+    run_dir = Path("/tmp/benchmark-run")
+    calls: list[tuple[str, Path]] = []
+
+    def fake_find_latest_benchmark_run(results_dir):
+        assert results_dir == "custom/results"
+        return run_dir
+
+    def fake_load_predictions(received_run_dir):
+        calls.append(("predictions", received_run_dir))
+        assert received_run_dir == run_dir
+        return pd.DataFrame([{"model_name": "ridge", "predicted_price_eur": 123.0}])
+
+    def fake_load_metrics(received_run_dir):
+        calls.append(("metrics", received_run_dir))
+        assert received_run_dir == run_dir
+        return {"ridge": {"mae_eur": 12.0}}
+
+    monkeypatch.setattr("elferspot_listings.utils.dashboard_data.find_latest_benchmark_run", fake_find_latest_benchmark_run)
+    monkeypatch.setattr("elferspot_listings.utils.dashboard_data.load_predictions", fake_load_predictions)
+    monkeypatch.setattr("elferspot_listings.utils.dashboard_data.load_metrics", fake_load_metrics)
+
+    outputs = load_latest_benchmark_outputs("custom/results")
+
+    assert isinstance(outputs, BenchmarkOutputs)
+    assert outputs.run_dir == run_dir
+    assert list(outputs.predictions["predicted_price_eur"]) == [123.0]
+    assert outputs.metrics == {"ridge": {"mae_eur": 12.0}}
+    assert calls == [("predictions", run_dir), ("metrics", run_dir)]
