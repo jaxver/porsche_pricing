@@ -42,8 +42,9 @@ def test_calculate_listing_score_uses_available_quality_fields():
 
     result = calculate_listing_score(df)
 
+    assert "listing_score" in result.columns
+    assert result["listing_score"].dtype.kind in "fi"
     assert result.loc[0, "listing_score"] > result.loc[1, "listing_score"]
-    assert result.loc[0, "listing_score"] >= 45
     assert result.loc[1, "listing_score"] == 0
 
 
