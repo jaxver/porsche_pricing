@@ -7,12 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
+import elferspot_listings.utils.dashboard_data as dashboard_data
 from elferspot_listings.utils.dashboard_data import (
     BenchmarkOutputs,
     find_latest_benchmark_run,
-    load_latest_metrics,
     load_latest_benchmark_outputs,
-    load_latest_predictions,
     load_metrics,
     load_predictions,
 )
@@ -72,12 +71,12 @@ def test_find_latest_benchmark_run_uses_predictions_mtime_and_keeps_metrics_in_s
 
         assert find_latest_benchmark_run(results_dir) == latest_run
 
-        predictions = load_latest_predictions(results_dir)
-        metrics = load_latest_metrics(results_dir)
+        outputs = load_latest_benchmark_outputs(results_dir)
 
-        assert predictions is not None
-        assert list(predictions["predicted_price_eur"]) == [200.0, 250.0]
-        assert metrics == {"ridge": {"mae_eur": 8.0}, "catboost": {"mae_eur": 6.0}}
+        assert outputs is not None
+        assert outputs.predictions is not None
+        assert list(outputs.predictions["predicted_price_eur"]) == [200.0, 250.0]
+        assert outputs.metrics == {"ridge": {"mae_eur": 8.0}, "catboost": {"mae_eur": 6.0}}
 
 
 def test_dashboard_helpers_return_none_when_predictions_are_missing():
@@ -88,8 +87,7 @@ def test_dashboard_helpers_return_none_when_predictions_are_missing():
         (metrics_only_run / "metrics.json").write_text(json.dumps({"ridge": {"mae_eur": 1.0}}), encoding="utf-8")
 
         assert find_latest_benchmark_run(results_dir) is None
-        assert load_latest_predictions(results_dir) is None
-        assert load_latest_metrics(results_dir) is None
+        assert load_latest_benchmark_outputs(results_dir) is None
 
 
 def test_load_latest_benchmark_outputs_uses_one_resolved_run_for_both_artifacts(monkeypatch):
@@ -118,6 +116,12 @@ def test_load_latest_benchmark_outputs_uses_one_resolved_run_for_both_artifacts(
 
     assert isinstance(outputs, BenchmarkOutputs)
     assert outputs.run_dir == run_dir
+    assert outputs.predictions is not None
     assert list(outputs.predictions["predicted_price_eur"]) == [123.0]
     assert outputs.metrics == {"ridge": {"mae_eur": 12.0}}
     assert calls == [("predictions", run_dir), ("metrics", run_dir)]
+
+
+def test_latest_run_wrappers_are_not_exported():
+    assert not hasattr(dashboard_data, "load_latest_predictions")
+    assert not hasattr(dashboard_data, "load_latest_metrics")

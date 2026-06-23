@@ -74,17 +74,3 @@ def load_latest_benchmark_outputs(results_dir: str | Path = "results/benchmarks"
         predictions=load_predictions(benchmark_run),
         metrics=load_metrics(benchmark_run),
     )
-
-
-def load_latest_predictions(results_dir: str | Path = "results/benchmarks") -> pd.DataFrame | None:
-    """Backward-compatible convenience wrapper for loading latest predictions."""
-
-    outputs = load_latest_benchmark_outputs(results_dir)
-    return None if outputs is None else outputs.predictions
-
-
-def load_latest_metrics(results_dir: str | Path = "results/benchmarks") -> dict | None:
-    """Backward-compatible convenience wrapper for loading latest metrics."""
-
-    outputs = load_latest_benchmark_outputs(results_dir)
-    return None if outputs is None else outputs.metrics
