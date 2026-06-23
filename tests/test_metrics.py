@@ -18,6 +18,47 @@ def test_regression_metrics_computes_error_summary():
     assert result["within_15pct"] == 1.0
 
 
+def test_regression_metrics_handles_zero_actuals_and_within_thresholds():
+    result = regression_metrics([0.0, 0.0], [0.0, 5.0])
+
+    assert result["mae_eur"] == 2.5
+    assert result["median_ae_eur"] == 2.5
+    assert result["mape"] == float("inf")
+    assert result["within_10pct"] == 0.5
+    assert result["within_15pct"] == 0.5
+
+
+def test_regression_metrics_uses_positional_comparison_for_series():
+    result = regression_metrics(
+        pd.Series([100.0, 200.0], index=[10, 11]),
+        pd.Series([110.0, 180.0], index=[99, 100]),
+    )
+
+    assert result["mae_eur"] == 15.0
+    assert result["median_ae_eur"] == 15.0
+    assert result["mape"] == 0.1
+    assert result["within_10pct"] == 1.0
+    assert result["within_15pct"] == 1.0
+
+
+def test_regression_metrics_rejects_empty_inputs():
+    try:
+        regression_metrics([], [])
+    except ValueError as exc:
+        assert "empty" in str(exc).lower()
+    else:
+        raise AssertionError("Expected ValueError for empty inputs")
+
+
+def test_regression_metrics_rejects_unequal_lengths():
+    try:
+        regression_metrics([100.0], [100.0, 110.0])
+    except ValueError as exc:
+        assert "length" in str(exc).lower()
+    else:
+        raise AssertionError("Expected ValueError for unequal lengths")
+
+
 def test_segment_metrics_groups_by_available_columns_and_skips_missing_columns():
     df = pd.DataFrame(
         {
