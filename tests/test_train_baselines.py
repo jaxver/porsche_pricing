@@ -129,7 +129,11 @@ def test_train_baseline_models_records_non_skops_artifact_failure_reason(tmp_pat
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", raise_import_error)
     monkeypatch.setattr("elferspot_listings.modeling.train.save_sklearn_model", raise_value_error)
 
-    result = train_baseline_models(gold_df, tmp_path, random_state=42)
+    try:
+        train_baseline_models(gold_df, tmp_path, random_state=42)
+    except ValueError as exc:
+        assert str(exc) == "serializer broke"
+    else:
+        raise AssertionError("train_baseline_models should fail on non-skops persistence errors")
 
     assert not (artifacts_dir / "ridge.skops").exists()
-    assert result.skipped_models.get("ridge_artifact") == "ValueError: serializer broke"

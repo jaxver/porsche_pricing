@@ -67,11 +67,10 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
         if artifact_path.exists():
             artifact_path.unlink()
         return False
-    except Exception as exc:
-        skipped_models[f"{model_name}_artifact"] = f"{type(exc).__name__}: {exc}"
+    except Exception:
         if artifact_path.exists():
             artifact_path.unlink()
-        return False
+        raise
     return True
 
 
