@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import json
 import shutil
 import time
@@ -20,6 +21,9 @@ from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_c
 from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
 from .features import build_feature_frame
 from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model_card
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -129,6 +133,48 @@ def _cleanup_written_sklearn_artifacts(artifact_paths: list[Path]) -> None:
     for artifact_path in artifact_paths:
         if artifact_path.exists():
             artifact_path.unlink()
+
+
+def _benchmark_metrics_for_db(metrics: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    return {
+        model_name: {
+            "mae_eur": values["mae_eur"],
+            "median_ae": values["median_ae_eur"],
+            "mape": values["mape"],
+            "within_10": values["within_10pct"],
+            "within_15": values["within_15pct"],
+        }
+        for model_name, values in metrics.items()
+    }
+
+
+def _log_benchmark_run(
+    *,
+    output_path: Path,
+    random_state: int,
+    train_catboost: bool,
+    run_tabpfn: bool,
+    run_autogluon: bool,
+    autogluon_time_limit: int,
+    metrics: dict[str, dict[str, float]],
+    skipped_models: dict[str, str],
+    start_time: float,
+) -> None:
+    try:
+        run_id = benchmark_db.insert_run(
+            config.BENCHMARK_DB,
+            random_state=random_state,
+            train_catboost=train_catboost,
+            run_tabpfn=run_tabpfn,
+            run_autogluon=run_autogluon,
+            autogluon_tl=autogluon_time_limit,
+            output_dir=output_path,
+            duration_sec=time.perf_counter() - start_time,
+        )
+        benchmark_db.insert_metrics(config.BENCHMARK_DB, run_id, _benchmark_metrics_for_db(metrics))
+        benchmark_db.insert_skipped(config.BENCHMARK_DB, run_id, skipped_models)
+    except Exception:
+        logger.exception("benchmark DB logging failed")
 
 
 def train_baseline_models(
@@ -272,6 +318,18 @@ def train_baseline_models(
 
     write_benchmark_report(metrics, output_path)
 
+    _log_benchmark_run(
+        output_path=output_path,
+        random_state=random_state,
+        train_catboost=train_catboost,
+        run_tabpfn=run_tabpfn,
+        run_autogluon=run_autogluon,
+        autogluon_time_limit=autogluon_time_limit,
+        metrics=metrics,
+        skipped_models=skipped_models,
+        start_time=start_time,
+    )
+
     if skipped_models:
         skipped_path = output_path / "skipped_models.json"
         skipped_path.write_text(json.dumps(skipped_models, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -279,33 +337,6 @@ def train_baseline_models(
         skipped_path = output_path / "skipped_models.json"
         if skipped_path.exists():
             skipped_path.unlink()
-
-    try:
-        duration_sec = time.perf_counter() - start_time
-        db_metrics = {
-            model_name: {
-                "mae_eur": values["mae_eur"],
-                "median_ae": values["median_ae_eur"],
-                "mape": values["mape"],
-                "within_10": values["within_10pct"],
-                "within_15": values["within_15pct"],
-            }
-            for model_name, values in metrics.items()
-        }
-        run_id = benchmark_db.insert_run(
-            config.BENCHMARK_DB,
-            random_state=random_state,
-            train_catboost=train_catboost,
-            run_tabpfn=run_tabpfn,
-            run_autogluon=run_autogluon,
-            autogluon_tl=autogluon_time_limit,
-            output_dir=output_path,
-            duration_sec=duration_sec,
-        )
-        benchmark_db.insert_metrics(config.BENCHMARK_DB, run_id, db_metrics)
-        benchmark_db.insert_skipped(config.BENCHMARK_DB, run_id, skipped_models)
-    except Exception:
-        pass
 
     return BenchmarkResult(
         metrics=metrics,

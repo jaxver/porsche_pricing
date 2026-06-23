@@ -80,7 +80,10 @@ def test_train_baseline_models_logs_run_to_sqlite(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "BENCHMARK_DB", db_path)
     monkeypatch.setattr(benchmark_db, "_current_git_commit", lambda: known_sha)
-    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.build_skrub_ridge_pipeline",
+        lambda _selected: (_ for _ in ()).throw(ImportError("skrub is not installed")),
+    )
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=17)
 
@@ -91,8 +94,24 @@ def test_train_baseline_models_logs_run_to_sqlite(tmp_path, monkeypatch):
     assert set(next(iter(latest["metrics"].values()))) == {"mae_eur", "median_ae", "mape", "within_10", "within_15"}
     assert latest["output_dir"] == str(tmp_path)
     assert latest["git_commit"] == known_sha
+    assert latest["skipped"] == {"skrub_ridge": "skrub is not installed"}
     assert (tmp_path / "metrics.json").exists()
     assert (tmp_path / "predictions.csv").exists()
+
+
+def test_train_baseline_models_ignores_benchmark_db_failures(tmp_path, monkeypatch):
+    db_path = tmp_path / "benchmark_runs.db"
+
+    monkeypatch.setattr(config, "BENCHMARK_DB", db_path)
+    monkeypatch.setattr(benchmark_db, "insert_run", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("db down")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=17)
+
+    assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+    assert (tmp_path / "metrics.json").exists()
+    assert (tmp_path / "predictions.csv").exists()
+    assert benchmark_db.get_latest_run(db_path) is None
 
 
 def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeypatch):
