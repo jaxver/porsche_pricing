@@ -36,8 +36,8 @@ CATEGORICAL_ALLOWLIST = (
 @dataclass(frozen=True)
 class SelectedColumns:
     target: str
-    numeric: list[str]
-    categorical: list[str]
+    numeric: tuple[str, ...]
+    categorical: tuple[str, ...]
 
     @property
     def features(self) -> list[str]:
@@ -45,8 +45,8 @@ class SelectedColumns:
 
 
 def select_model_columns(df: pd.DataFrame) -> SelectedColumns:
-    numeric = [column for column in NUMERIC_ALLOWLIST if column in df.columns]
-    categorical = [column for column in CATEGORICAL_ALLOWLIST if column in df.columns]
+    numeric = tuple(column for column in NUMERIC_ALLOWLIST if column in df.columns)
+    categorical = tuple(column for column in CATEGORICAL_ALLOWLIST if column in df.columns)
     return SelectedColumns(target=TARGET_COLUMN, numeric=numeric, categorical=categorical)
 
 

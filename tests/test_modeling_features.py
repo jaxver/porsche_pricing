@@ -23,8 +23,8 @@ def test_select_model_columns_returns_existing_allowlisted_columns_only():
     selected = select_model_columns(df)
 
     assert selected.target == TARGET_COLUMN
-    assert selected.numeric == ["Mileage_km"]
-    assert selected.categorical == ["Model"]
+    assert selected.numeric == ("Mileage_km",)
+    assert selected.categorical == ("Model",)
     assert selected.features == ["Mileage_km", "Model"]
 
 
@@ -44,8 +44,30 @@ def test_select_model_columns_includes_richer_existing_gold_columns():
 
     selected = select_model_columns(df)
 
-    assert selected.numeric == ["Mileage_km", "log_mileage", "Mileage_sq"]
-    assert selected.categorical == ["Transmission", "Drive", "Ready to drive", "Car location"]
+    assert selected.numeric == ("Mileage_km", "log_mileage", "Mileage_sq")
+    assert selected.categorical == (
+        "Transmission",
+        "Drive",
+        "Ready to drive",
+        "Car location",
+    )
+
+
+def test_selected_columns_fields_are_immutable_tuples():
+    selected = select_model_columns(
+        pd.DataFrame(
+            {
+                TARGET_COLUMN: [100000],
+                "Mileage_km": [10000],
+                "Model": ["911"],
+            }
+        )
+    )
+
+    assert isinstance(selected.numeric, tuple)
+    assert isinstance(selected.categorical, tuple)
+    with pytest.raises(AttributeError):
+        selected.numeric.append("extra")
 
 
 def test_allowlists_are_immutable_tuples():
