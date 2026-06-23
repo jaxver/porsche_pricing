@@ -160,3 +160,39 @@ def test_train_baseline_models_includes_catboost_when_enabled(tmp_path, monkeypa
     assert "catboost" in result.metrics
     assert "catboost" in set(result.predictions["model_name"])
     assert (tmp_path / "artifacts" / "catboost.cbm").exists()
+
+
+def test_train_baseline_models_removes_stale_catboost_artifact_when_not_training(tmp_path, monkeypatch):
+    from elferspot_listings.modeling.baselines import MedianRegressor
+
+    stale_artifact = tmp_path / "artifacts" / "catboost.cbm"
+    stale_artifact.parent.mkdir(parents=True, exist_ok=True)
+    stale_artifact.write_text("stale artifact\n", encoding="utf-8")
+
+    gold_df = pd.DataFrame(
+        {
+            "price_in_eur": [100000.0, 120000.0, 140000.0, 160000.0, 180000.0, 200000.0, 220000.0, 240000.0],
+            "Mileage_km": [10000.0, 20000.0, 30000.0, 40000.0, 50000.0, 60000.0, 70000.0, 80000.0],
+            "Year of construction": [1995, 1997, 2000, 2003, 2005, 2008, 2011, 2014],
+            "model_category": ["911", "911", "Cayenne", "Boxster", "Targa", "SUV", "964", "992"],
+        }
+    )
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=False)
+
+    assert result.skipped_models == {}
+    assert not stale_artifact.exists()
+
+    stale_artifact.write_text("stale artifact\n", encoding="utf-8")
+
+    def raise_import_error(*_args, **_kwargs):
+        raise ImportError("catboost is not installed")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", raise_import_error)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=True)
+
+    assert result.skipped_models["catboost"] == "catboost is not installed"
+    assert not stale_artifact.exists()

@@ -72,6 +72,8 @@ def train_baseline_models(
     metrics: dict[str, dict[str, float]] = {}
     skipped_models: dict[str, str] = {}
     prediction_frames: list[pd.DataFrame] = []
+    catboost_artifact_path = output_path / "artifacts" / "catboost.cbm"
+    catboost_trained = False
 
     for model_name, model in (
         ("median", MedianRegressor()),
@@ -102,7 +104,11 @@ def train_baseline_models(
             model_predictions = model_predictions.assign(model_name="catboost")
             metrics["catboost"] = model_metrics
             prediction_frames.append(model_predictions)
-            save_catboost_model(catboost_model, output_path / "artifacts" / "catboost.cbm")
+            save_catboost_model(catboost_model, catboost_artifact_path)
+            catboost_trained = True
+
+    if not catboost_trained and catboost_artifact_path.exists():
+        catboost_artifact_path.unlink()
 
     predictions = pd.concat(prediction_frames, ignore_index=True)
     predictions = predictions[["row_index", "model_name", "actual_price_eur", "predicted_price_eur", "residual_eur"]]
