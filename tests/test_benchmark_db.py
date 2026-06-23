@@ -53,6 +53,15 @@ def test_ensure_schema_is_idempotent(tmp_path):
     assert count >= 3
 
 
+def test_ensure_schema_creates_parent_directory(tmp_path):
+    db_path = tmp_path / "nested" / "benchmark_runs.db"
+
+    benchmark_db.ensure_schema(db_path)
+
+    assert db_path.exists()
+    assert db_path.parent.exists()
+
+
 def test_insert_run_returns_id(tmp_path, monkeypatch):
     db_path = _db_path(tmp_path)
     monkeypatch.setattr(benchmark_db, "_current_git_commit", lambda: "abc123")

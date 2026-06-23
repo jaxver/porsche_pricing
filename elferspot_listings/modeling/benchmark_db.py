@@ -14,8 +14,9 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
 
 def _current_git_commit() -> str | None:
     try:
+        repo_root = Path(__file__).resolve().parents[2]
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
             check=True,
             capture_output=True,
             text=True,
@@ -28,6 +29,7 @@ def _current_git_commit() -> str | None:
 
 
 def ensure_schema(db_path: str | Path) -> None:
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _connect(db_path) as conn:
         conn.executescript(
             """
