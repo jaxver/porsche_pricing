@@ -38,17 +38,34 @@ def _build_feature_transformer(selected: SelectedColumns) -> ColumnTransformer:
         ]
     )
 
+    transformers = []
+    if selected.numeric:
+        transformers.append(("numeric", numeric_pipeline, list(selected.numeric)))
+    if selected.categorical:
+        transformers.append(("categorical", categorical_pipeline, list(selected.categorical)))
+
+    if not transformers:
+        raise ValueError("SelectedColumns must include at least one feature column")
+
     return ColumnTransformer(
-        transformers=[
-            ("numeric", numeric_pipeline, list(selected.numeric)),
-            ("categorical", categorical_pipeline, list(selected.categorical)),
-        ],
+        transformers=transformers,
         remainder="drop",
     )
 
 
 def _select_columns(frame, columns):
     return frame.loc[:, columns]
+
+
+def _positive_log_target(y):
+    values = np.asarray(y, dtype=float)
+    if np.any(values <= 0):
+        raise ValueError("Target values must be positive before applying the log transform")
+    return np.log(values)
+
+
+def _exp_target(y):
+    return np.exp(np.asarray(y, dtype=float))
 
 
 def build_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
@@ -60,8 +77,8 @@ def build_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegresso
     )
     return TransformedTargetRegressor(
         regressor=model,
-        func=np.log1p,
-        inverse_func=np.expm1,
+        func=_positive_log_target,
+        inverse_func=_exp_target,
     )
 
 
@@ -80,6 +97,6 @@ def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRe
     )
     return TransformedTargetRegressor(
         regressor=model,
-        func=np.log1p,
-        inverse_func=np.expm1,
+        func=_positive_log_target,
+        inverse_func=_exp_target,
     )
