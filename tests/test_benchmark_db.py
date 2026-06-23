@@ -183,6 +183,30 @@ def test_insert_skipped_stores_reasons(tmp_path):
     assert rows == [("autogluon", "disabled"), ("tabpfn", "dependency missing")]
 
 
+def test_insert_skipped_is_idempotent(tmp_path):
+    db_path = _db_path(tmp_path)
+    run_id = benchmark_db.insert_run(
+        db_path,
+        random_state=42,
+        train_catboost=False,
+        run_tabpfn=False,
+        run_autogluon=False,
+        autogluon_tl=600,
+        output_dir=None,
+        duration_sec=None,
+        git_commit="abc123",
+    )
+
+    skipped = {"tabpfn": "dependency missing", "autogluon": "disabled"}
+    benchmark_db.insert_skipped(db_path, run_id, skipped)
+    benchmark_db.insert_skipped(db_path, run_id, skipped)
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM skipped_models WHERE run_id = ?", (run_id,)).fetchone()[0]
+
+    assert count == 2
+
+
 def test_get_latest_run_returns_none_when_empty(tmp_path):
     db_path = _db_path(tmp_path)
 

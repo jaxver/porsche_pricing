@@ -60,7 +60,8 @@ def ensure_schema(db_path: str | Path) -> None:
             CREATE TABLE IF NOT EXISTS skipped_models (
                 run_id      INTEGER NOT NULL REFERENCES runs(id),
                 model_name  TEXT NOT NULL,
-                reason      TEXT NOT NULL
+                reason      TEXT NOT NULL,
+                UNIQUE(run_id, model_name)
             );
             """
         )
@@ -135,7 +136,7 @@ def insert_skipped(db_path: str | Path, run_id: int, skipped: dict[str, str]) ->
     rows = [(run_id, model_name, reason) for model_name, reason in skipped.items()]
     with _connect(db_path) as conn:
         conn.executemany(
-            "INSERT INTO skipped_models (run_id, model_name, reason) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO skipped_models (run_id, model_name, reason) VALUES (?, ?, ?)",
             rows,
         )
 
