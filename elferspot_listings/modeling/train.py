@@ -3,15 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
+import config
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from elferspot_listings.evaluation.metrics import regression_metrics
 from elferspot_listings.evaluation.reports import write_benchmark_report
 
+from . import benchmark_db
 from .baselines import MedianRegressor, build_ridge_pipeline, build_skrub_ridge_pipeline
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
@@ -137,6 +140,7 @@ def train_baseline_models(
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
 ) -> BenchmarkResult:
+    start_time = time.perf_counter()
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)
 
@@ -275,6 +279,33 @@ def train_baseline_models(
         skipped_path = output_path / "skipped_models.json"
         if skipped_path.exists():
             skipped_path.unlink()
+
+    try:
+        duration_sec = time.perf_counter() - start_time
+        db_metrics = {
+            model_name: {
+                "mae_eur": values["mae_eur"],
+                "median_ae": values["median_ae_eur"],
+                "mape": values["mape"],
+                "within_10": values["within_10pct"],
+                "within_15": values["within_15pct"],
+            }
+            for model_name, values in metrics.items()
+        }
+        run_id = benchmark_db.insert_run(
+            config.BENCHMARK_DB,
+            random_state=random_state,
+            train_catboost=train_catboost,
+            run_tabpfn=run_tabpfn,
+            run_autogluon=run_autogluon,
+            autogluon_tl=autogluon_time_limit,
+            output_dir=output_path,
+            duration_sec=duration_sec,
+        )
+        benchmark_db.insert_metrics(config.BENCHMARK_DB, run_id, db_metrics)
+        benchmark_db.insert_skipped(config.BENCHMARK_DB, run_id, skipped_models)
+    except Exception:
+        pass
 
     return BenchmarkResult(
         metrics=metrics,

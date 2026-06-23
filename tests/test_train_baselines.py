@@ -4,9 +4,11 @@ import json
 import importlib.util
 from pathlib import Path
 
+import config
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from elferspot_listings.modeling import benchmark_db
 from elferspot_listings.modeling.baselines import MedianRegressor
 from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError
 from elferspot_listings.modeling.persistence import SkopsNotInstalledError
@@ -70,6 +72,27 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
     assert skipped_payload.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
         assert skipped_payload.get("ridge_artifact") == "skops is not installed"
+
+
+def test_train_baseline_models_logs_run_to_sqlite(tmp_path, monkeypatch):
+    db_path = tmp_path / "benchmark_runs.db"
+    known_sha = "0123456789abcdef0123456789abcdef01234567"
+
+    monkeypatch.setattr(config, "BENCHMARK_DB", db_path)
+    monkeypatch.setattr(benchmark_db, "_current_git_commit", lambda: known_sha)
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=17)
+
+    latest = benchmark_db.get_latest_run(db_path)
+    assert latest is not None
+    assert latest["random_state"] == 17
+    assert set(latest["metrics"]) == set(result.metrics)
+    assert set(next(iter(latest["metrics"].values()))) == {"mae_eur", "median_ae", "mape", "within_10", "within_15"}
+    assert latest["output_dir"] == str(tmp_path)
+    assert latest["git_commit"] == known_sha
+    assert (tmp_path / "metrics.json").exists()
+    assert (tmp_path / "predictions.csv").exists()
 
 
 def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeypatch):
