@@ -17,6 +17,7 @@ DATA_DIR_GOLD = DATA_DIR / "gold"
 
 # Output directories
 RESULTS_DIR = PROJECT_ROOT / "results"
+BENCHMARK_DB = RESULTS_DIR / "benchmarks" / "benchmark_runs.db"
 MODELS_DIR = PROJECT_ROOT / "models"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
