@@ -13,6 +13,7 @@ from elferspot_listings.evaluation.reports import write_benchmark_report
 
 from .baselines import MedianRegressor, build_ridge_pipeline, build_skrub_ridge_pipeline
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
+from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
 from .features import build_feature_frame
 from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model_card
 
@@ -58,6 +59,26 @@ def _score_catboost_model(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -
     return predictions, metrics
 
 
+def _score_predictions(model_name: str, y_test: pd.Series, predicted: Any) -> tuple[pd.DataFrame, dict[str, float]]:
+    predicted_values = pd.Series(predicted, index=y_test.index, dtype=float)
+    predictions = pd.DataFrame(
+        {
+            "row_index": y_test.index,
+            "actual_price_eur": y_test.to_numpy(dtype=float),
+            "predicted_price_eur": predicted_values.to_numpy(dtype=float),
+        }
+    )
+    predictions["model_name"] = model_name
+    predictions["residual_eur"] = predictions["actual_price_eur"] - predictions["predicted_price_eur"]
+    metrics = regression_metrics(y_test, predicted_values)
+    return predictions, metrics
+
+
+def _prepare_tabpfn_features(X_train: pd.DataFrame, X_test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    combined = pd.get_dummies(pd.concat([X_train, X_test]), dummy_na=True).fillna(0)
+    return combined.loc[X_train.index], combined.loc[X_test.index]
+
+
 def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, skipped_models: dict[str, str]) -> bool:
     artifact_path = artifacts_dir / f"{model_name}.skops"
     try:
@@ -94,6 +115,9 @@ def train_baseline_models(
     output_dir: str | Path,
     random_state: int = 42,
     train_catboost: bool = False,
+    run_tabpfn: bool = False,
+    run_autogluon: bool = False,
+    autogluon_time_limit: int = 600,
 ) -> BenchmarkResult:
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)
@@ -132,6 +156,37 @@ def train_baseline_models(
         metrics["skrub_ridge"] = model_metrics
         prediction_frames.append(model_predictions)
         baseline_artifact_models["skrub_ridge"] = skrub_model
+
+    if run_tabpfn:
+        tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
+        try:
+            _, tabpfn_predictions, _ = run_tabpfn_regression(tabpfn_X_train, y_train, tabpfn_X_test, random_state=random_state)
+        except OptionalDependencyNotInstalledError as exc:
+            skipped_models["tabpfn"] = str(exc)
+        else:
+            model_predictions, model_metrics = _score_predictions("tabpfn", y_test, tabpfn_predictions)
+            metrics["tabpfn"] = model_metrics
+            prediction_frames.append(model_predictions)
+
+    if run_autogluon:
+        autogluon_train_df = X_train.copy()
+        autogluon_train_df["price_in_eur"] = y_train.to_numpy(dtype=float)
+        autogluon_test_df = X_test.copy()
+        autogluon_test_df["price_in_eur"] = y_test.to_numpy(dtype=float)
+        try:
+            _, autogluon_predictions, _, _ = run_autogluon_regression(
+                autogluon_train_df,
+                autogluon_test_df,
+                "price_in_eur",
+                output_path,
+                time_limit=autogluon_time_limit,
+            )
+        except OptionalDependencyNotInstalledError as exc:
+            skipped_models["autogluon"] = str(exc)
+        else:
+            model_predictions, model_metrics = _score_predictions("autogluon", y_test, autogluon_predictions)
+            metrics["autogluon"] = model_metrics
+            prediction_frames.append(model_predictions)
 
     if train_catboost:
         try:

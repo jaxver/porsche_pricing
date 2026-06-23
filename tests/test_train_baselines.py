@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from elferspot_listings.modeling.baselines import MedianRegressor
+from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError
 from elferspot_listings.modeling.persistence import SkopsNotInstalledError
 from elferspot_listings.modeling.train import train_baseline_models
 
@@ -69,6 +70,126 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
     assert skipped_payload.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
         assert skipped_payload.get("ridge_artifact") == "skops is not installed"
+
+
+def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_tabpfn_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run by default")),
+    )
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run by default")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42)
+
+    assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+    assert "tabpfn" not in result.metrics
+    assert "autogluon" not in result.metrics
+    assert "tabpfn" not in set(result.predictions["model_name"])
+    assert "autogluon" not in set(result.predictions["model_name"])
+
+
+def test_train_baseline_models_records_missing_tabpfn_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def fake_tabpfn(*_args, **_kwargs):
+        raise OptionalDependencyNotInstalledError("TabPFN")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run in this test")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True)
+
+    assert "tabpfn" not in result.metrics
+    assert result.skipped_models.get("tabpfn") == "Install TabPFN with `python -m pip install -r requirements-advanced.txt`."
+
+
+def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def fake_autogluon(*_args, **_kwargs):
+        raise OptionalDependencyNotInstalledError("AutoGluon")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_tabpfn_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run in this test")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=True)
+
+    assert "autogluon" not in result.metrics
+    assert result.skipped_models.get("autogluon") == "Install AutoGluon with `python -m pip install -r requirements-advanced.txt`."
+
+
+def test_train_baseline_models_appends_tabpfn_predictions_with_encoded_features(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured = {}
+
+    def fake_tabpfn(X_train, y_train, X_test, random_state=42):
+        captured["X_train"] = X_train.copy()
+        captured["X_test"] = X_test.copy()
+        captured["random_state"] = random_state
+        return object(), pd.Series([111.0] * len(X_test), index=X_test.index), {"model_name": "tabpfn", "runtime_seconds": 0.0, "notes": "fake checkpoint note"}
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True)
+
+    assert "tabpfn" in result.metrics
+    assert "tabpfn" in set(result.predictions["model_name"])
+    assert result.predictions[result.predictions["model_name"] == "tabpfn"]["predicted_price_eur"].tolist() == [111.0] * len(
+        result.predictions[result.predictions["model_name"] == "tabpfn"]
+    )
+    assert captured["random_state"] == 42
+    assert not captured["X_train"].isna().any().any()
+    assert not captured["X_test"].isna().any().any()
+    assert any(column.endswith("_nan") for column in captured["X_train"].columns)
+
+
+def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_frame(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured = {}
+
+    def fake_autogluon(train_df, test_df, target, output_dir, time_limit=600, artifact_dir=None):
+        captured["train_df"] = train_df.copy()
+        captured["test_df"] = test_df.copy()
+        captured["target"] = target
+        captured["output_dir"] = Path(output_dir)
+        captured["time_limit"] = time_limit
+        captured["artifact_dir"] = artifact_dir
+        return object(), pd.Series([222.0] * len(test_df), index=test_df.index), pd.DataFrame({"model": ["fake"], "score": [0.5]}), {"model_name": "autogluon", "runtime_seconds": 0.0, "time_limit_seconds": time_limit, "presets": "best_quality"}
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=True, autogluon_time_limit=33)
+
+    assert "autogluon" in result.metrics
+    assert "autogluon" in set(result.predictions["model_name"])
+    assert result.predictions[result.predictions["model_name"] == "autogluon"]["predicted_price_eur"].tolist() == [222.0] * len(
+        result.predictions[result.predictions["model_name"] == "autogluon"]
+    )
+    assert captured["target"] == "price_in_eur"
+    assert captured["time_limit"] == 33
+    assert set(captured["train_df"].columns) == set(gold_df.columns)
+    assert set(captured["test_df"].columns) == set(gold_df.columns)
+    assert "price_in_eur" in captured["train_df"].columns
+    assert "price_in_eur" in captured["test_df"].columns
+
 
 
 def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recovers(tmp_path, monkeypatch):
