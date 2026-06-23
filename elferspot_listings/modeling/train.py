@@ -83,6 +83,10 @@ def train_baseline_models(
     if skipped_models:
         skipped_path = output_path / "skipped_models.json"
         skipped_path.write_text(json.dumps(skipped_models, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    else:
+        skipped_path = output_path / "skipped_models.json"
+        if skipped_path.exists():
+            skipped_path.unlink()
 
     return BenchmarkResult(
         metrics=metrics,
