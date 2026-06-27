@@ -21,7 +21,7 @@ def default_catboost_params(random_state: int = 42) -> dict[str, Any]:
     }
 
 
-def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_state: int = 42):
+def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_state: int = 42, params: dict[str, Any] | None = None):
     from catboost import CatBoostRegressor, Pool
 
     frame = pd.DataFrame(X_train).copy()
@@ -35,7 +35,10 @@ def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_s
     cat_features = [frame.columns.get_loc(column) for column in categorical_columns]
 
     train_pool = Pool(frame, label=np.log(target), cat_features=cat_features)
-    model = CatBoostRegressor(**default_catboost_params(random_state=random_state))
+    model_params = default_catboost_params(random_state=random_state)
+    if params:
+        model_params.update(params)
+    model = CatBoostRegressor(**model_params)
     model.fit(train_pool)
     return model
 

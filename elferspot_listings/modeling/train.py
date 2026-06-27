@@ -52,6 +52,33 @@ def tune_elasticnet_params(
     return {**study.best_params, "max_iter": 20000}
 
 
+def tune_catboost_params(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    selected: Any,
+    random_state: int = 42,
+    n_trials: int = 25,
+) -> dict[str, float | int]:
+    import optuna
+
+    X_tune, X_valid, y_tune, y_valid = train_test_split(X_train, y_train, test_size=0.25, random_state=random_state)
+
+    def objective(trial: Any) -> float:
+        params = {
+            "iterations": trial.suggest_int("iterations", 250, 1200),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+            "depth": trial.suggest_int("depth", 3, 8),
+            "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 20.0, log=True),
+        }
+        model = fit_catboost_regressor(X_tune, y_tune, selected, random_state=random_state, params=params)
+        _, metrics = _score_catboost_model(model, X_valid, y_valid)
+        return metrics["mae_eur"]
+
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=n_trials)
+    return study.best_params
+
+
 @dataclass(frozen=True)
 class BenchmarkResult:
     metrics: dict[str, dict[str, float]]
@@ -209,6 +236,7 @@ def train_baseline_models(
     random_state: int = 42,
     train_catboost: bool = False,
     tune_elasticnet: bool = False,
+    tune_catboost: bool = False,
     tuning_trials: int = 25,
     run_tabpfn: bool = False,
     run_autogluon: bool = False,
@@ -291,7 +319,10 @@ def train_baseline_models(
 
     if train_catboost:
         try:
-            catboost_model = fit_catboost_regressor(X_train, y_train, selected, random_state=random_state)
+            catboost_params = None
+            if tune_catboost:
+                catboost_params = tune_catboost_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
+            catboost_model = fit_catboost_regressor(X_train, y_train, selected, random_state=random_state, params=catboost_params)
         except ImportError:
             skipped_models["catboost"] = "catboost is not installed"
         else:

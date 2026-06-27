@@ -162,6 +162,58 @@ def test_train_baseline_models_includes_catboost_when_enabled(tmp_path, monkeypa
     assert (tmp_path / "artifacts" / "catboost.cbm").exists()
 
 
+def test_train_baseline_models_can_tune_catboost_with_optuna(tmp_path, monkeypatch):
+    from elferspot_listings.modeling.baselines import MedianRegressor
+
+    captured: dict[str, object] = {}
+
+    class FakeCatBoostModel:
+        def predict(self, X):
+            return np.log(np.full(len(X), 210000.0))
+
+        def save_model(self, path):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("fake catboost artifact\n", encoding="utf-8")
+
+    def fake_tune_catboost_params(X_train, y_train, selected, random_state=42, n_trials=25):
+        captured["n_trials"] = n_trials
+        captured["random_state"] = random_state
+        captured["train_rows"] = len(X_train)
+        return {"iterations": 123, "learning_rate": 0.03, "depth": 4}
+
+    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None):
+        captured["fit_params"] = params
+        return FakeCatBoostModel()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.tune_catboost_params", fake_tune_catboost_params)
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", fake_fit_catboost_regressor)
+
+    gold_df = pd.DataFrame(
+        {
+            "price_in_eur": [100000.0, 120000.0, 140000.0, 160000.0, 180000.0, 200000.0, 220000.0, 240000.0],
+            "Mileage_km": [10000.0, 20000.0, 30000.0, 40000.0, 50000.0, 60000.0, 70000.0, 80000.0],
+            "Year of construction": [1995, 1997, 2000, 2003, 2005, 2008, 2011, 2014],
+            "model_category": ["911", "911", "Cayenne", "Boxster", "Targa", "SUV", "964", "992"],
+        }
+    )
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=17,
+        train_catboost=True,
+        tune_catboost=True,
+        tuning_trials=9,
+    )
+
+    assert captured["n_trials"] == 9
+    assert captured["random_state"] == 17
+    assert captured["train_rows"] == 6
+    assert captured["fit_params"] == {"iterations": 123, "learning_rate": 0.03, "depth": 4}
+    assert "catboost" in result.metrics
+
+
 def test_train_baseline_models_removes_stale_catboost_artifact_when_not_training(tmp_path, monkeypatch):
     from elferspot_listings.modeling.baselines import MedianRegressor
 
