@@ -30,6 +30,8 @@ def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_s
         raise ValueError("Target values must be positive before applying the log transform")
 
     categorical_columns = [column for column in selected.categorical if column in frame.columns]
+    for col in categorical_columns:
+        frame[col] = frame[col].fillna("Unknown").astype(str)
     cat_features = [frame.columns.get_loc(column) for column in categorical_columns]
 
     train_pool = Pool(frame, label=np.log(target), cat_features=cat_features)

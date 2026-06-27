@@ -60,5 +60,8 @@ def build_feature_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, Sele
 
     modeled = df.dropna(subset=[TARGET_COLUMN]).copy()
     X = modeled[selected.features].copy()
+    for col in selected.categorical:
+        if col in X.columns:
+            X[col] = X[col].fillna("Unknown")
     y = modeled[TARGET_COLUMN].astype(float)
     return X, y, selected
