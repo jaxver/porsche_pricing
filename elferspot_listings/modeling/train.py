@@ -26,6 +26,32 @@ from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model
 logger = logging.getLogger(__name__)
 
 
+def tune_elasticnet_params(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    selected: Any,
+    random_state: int = 42,
+    n_trials: int = 25,
+) -> dict[str, float | int]:
+    import optuna
+
+    X_tune, X_valid, y_tune, y_valid = train_test_split(X_train, y_train, test_size=0.25, random_state=random_state)
+
+    def objective(trial: Any) -> float:
+        params = {
+            "alpha": trial.suggest_float("alpha", 1e-5, 10.0, log=True),
+            "l1_ratio": trial.suggest_float("l1_ratio", 0.0, 1.0),
+            "max_iter": 20000,
+        }
+        model = build_elasticnet_pipeline(selected, **params)
+        _, metrics = _score_model(model, X_tune, y_tune, X_valid, y_valid)
+        return metrics["mae_eur"]
+
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=n_trials)
+    return {**study.best_params, "max_iter": 20000}
+
+
 @dataclass(frozen=True)
 class BenchmarkResult:
     metrics: dict[str, dict[str, float]]
@@ -182,6 +208,8 @@ def train_baseline_models(
     output_dir: str | Path,
     random_state: int = 42,
     train_catboost: bool = False,
+    tune_elasticnet: bool = False,
+    tuning_trials: int = 25,
     run_tabpfn: bool = False,
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
@@ -203,10 +231,14 @@ def train_baseline_models(
     saved_artifact_models: set[str] = set()
     saved_artifact_paths: list[Path] = []
 
+    elasticnet_params = config.MODEL_CONFIG["elasticnet"]
+    if tune_elasticnet:
+        elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
+
     for model_name, model in (
         ("median", MedianRegressor()),
         ("ridge", build_ridge_pipeline(selected)),
-        ("elasticnet", build_elasticnet_pipeline(selected, **config.MODEL_CONFIG["elasticnet"])),
+        ("elasticnet", build_elasticnet_pipeline(selected, **elasticnet_params)),
     ):
         model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
         model_predictions = model_predictions.assign(model_name=model_name)

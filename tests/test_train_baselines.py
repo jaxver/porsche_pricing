@@ -74,6 +74,25 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
         assert skipped_payload.get("ridge_artifact") == "skops is not installed"
 
 
+def test_train_baseline_models_can_tune_elasticnet_with_optuna(tmp_path, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_tune_elasticnet_params(X_train, y_train, selected, random_state=42, n_trials=25):
+        captured["n_trials"] = n_trials
+        captured["random_state"] = random_state
+        captured["train_rows"] = len(X_train)
+        return {"alpha": 0.01, "l1_ratio": 0.1, "max_iter": 5000}
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.tune_elasticnet_params", fake_tune_elasticnet_params)
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=17, tune_elasticnet=True, tuning_trials=7)
+
+    assert captured == {"n_trials": 7, "random_state": 17, "train_rows": 6}
+    assert "elasticnet" in result.metrics
+    assert "elasticnet" in set(result.predictions["model_name"])
+
+
 def test_train_baseline_models_logs_run_to_sqlite(tmp_path, monkeypatch):
     db_path = tmp_path / "benchmark_runs.db"
     known_sha = "0123456789abcdef0123456789abcdef01234567"
