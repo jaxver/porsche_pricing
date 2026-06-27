@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
@@ -82,6 +82,28 @@ def build_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegresso
     )
 
 
+def build_elasticnet_pipeline(
+    selected: SelectedColumns,
+    alpha: float = 1.0,
+    l1_ratio: float = 0.5,
+    max_iter: int = 10000,
+) -> TransformedTargetRegressor:
+    model = Pipeline(
+        steps=[
+            ("features", _build_feature_transformer(selected)),
+            (
+                "elasticnet",
+                ElasticNet(alpha=alpha, l1_ratio=l1_ratio, max_iter=max_iter),
+            ),
+        ]
+    )
+    return TransformedTargetRegressor(
+        regressor=model,
+        func=_positive_log_target,
+        inverse_func=_exp_target,
+    )
+
+
 def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
     from skrub import TableVectorizer
 
@@ -92,6 +114,7 @@ def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRe
                 FunctionTransformer(_select_columns, kw_args={"columns": selected.features}),
             ),
             ("features", TableVectorizer()),
+            ("imputer", SimpleImputer(strategy="median")),
             ("ridge", Ridge()),
         ]
     )

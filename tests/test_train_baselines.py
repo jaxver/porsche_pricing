@@ -51,7 +51,7 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
     assert result.skipped_models.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
         assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
-    assert set(result.metrics) == {"median", "ridge"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet"}
     assert list(result.predictions.columns) == [
         "row_index",
         "model_name",
@@ -59,15 +59,15 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
         "predicted_price_eur",
         "residual_eur",
     ]
-    assert set(result.predictions["model_name"]) == {"median", "ridge"}
-    assert result.predictions["model_name"].value_counts().to_dict() == {"median": 2, "ridge": 2}
-    for model_name in ("median", "ridge"):
+    assert set(result.predictions["model_name"]) == {"median", "ridge", "elasticnet"}
+    assert result.predictions["model_name"].value_counts().to_dict() == {"median": 2, "ridge": 2, "elasticnet": 2}
+    for model_name in ("median", "ridge", "elasticnet"):
         model_rows = result.predictions[result.predictions["model_name"] == model_name]
         assert model_rows["row_index"].tolist() == expected_holdout
         assert len(model_rows) == len(expected_holdout)
 
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert set(metrics) == {"median", "ridge"}
+    assert set(metrics) == {"median", "ridge", "elasticnet"}
     skipped_payload = json.loads((tmp_path / "skipped_models.json").read_text(encoding="utf-8"))
     assert skipped_payload.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
@@ -108,7 +108,7 @@ def test_train_baseline_models_ignores_benchmark_db_failures(tmp_path, monkeypat
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=17)
 
-    assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge"}
     assert (tmp_path / "metrics.json").exists()
     assert (tmp_path / "predictions.csv").exists()
     assert benchmark_db.get_latest_run(db_path) is None
@@ -129,7 +129,7 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
 
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
-    assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge"}
     assert "tabpfn" not in result.metrics
     assert "autogluon" not in result.metrics
     assert "tabpfn" not in set(result.predictions["model_name"])
@@ -298,7 +298,7 @@ def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recov
     if skipped_path.exists():
         second_payload = json.loads(skipped_path.read_text(encoding="utf-8"))
         assert second_payload.get("skrub_ridge") is None
-    assert set(result.metrics) == {"median", "ridge", "skrub_ridge"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge"}
 
 
 def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_unavailable(tmp_path, monkeypatch):
@@ -306,6 +306,7 @@ def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_una
     artifacts_dir = tmp_path / "artifacts"
     artifacts_dir.mkdir(parents=True)
     (artifacts_dir / "ridge.skops").write_text("stale ridge", encoding="utf-8")
+    (artifacts_dir / "elasticnet.skops").write_text("stale elasticnet", encoding="utf-8")
     (artifacts_dir / "skrub_ridge.skops").write_text("stale skrub", encoding="utf-8")
 
     def raise_skops_missing(*_args, **_kwargs):
@@ -317,8 +318,10 @@ def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_una
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
     assert not (artifacts_dir / "ridge.skops").exists()
+    assert not (artifacts_dir / "elasticnet.skops").exists()
     assert not (artifacts_dir / "skrub_ridge.skops").exists()
     assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
+    assert result.skipped_models.get("elasticnet_artifact") == "skops is not installed"
     assert result.skipped_models.get("skrub_ridge_artifact") == "skops is not installed"
 
 
@@ -373,7 +376,8 @@ def test_train_baseline_models_rolls_back_previous_artifacts_on_later_save_failu
     else:
         raise AssertionError("train_baseline_models should fail on unexpected late persistence errors")
 
-    assert calls == ["ridge.skops", "skrub_ridge.skops"]
+    assert calls == ["ridge.skops", "elasticnet.skops"]
     assert not (artifacts_dir / "ridge.skops").exists()
+    assert not (artifacts_dir / "elasticnet.skops").exists()
     assert not (artifacts_dir / "skrub_ridge.skops").exists()
     assert unrelated_path.exists()

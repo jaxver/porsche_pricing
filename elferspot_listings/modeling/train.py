@@ -16,7 +16,7 @@ from elferspot_listings.evaluation.metrics import regression_metrics
 from elferspot_listings.evaluation.reports import write_benchmark_report
 
 from . import benchmark_db
-from .baselines import MedianRegressor, build_ridge_pipeline, build_skrub_ridge_pipeline
+from .baselines import MedianRegressor, build_elasticnet_pipeline, build_ridge_pipeline, build_skrub_ridge_pipeline
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
 from .features import build_feature_frame
@@ -121,7 +121,7 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
 
 
 def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
-    for model_name in ("ridge", "skrub_ridge"):
+    for model_name in ("ridge", "elasticnet", "skrub_ridge"):
         if model_name in saved_models:
             continue
         artifact_path = artifacts_dir / f"{model_name}.skops"
@@ -206,6 +206,7 @@ def train_baseline_models(
     for model_name, model in (
         ("median", MedianRegressor()),
         ("ridge", build_ridge_pipeline(selected)),
+        ("elasticnet", build_elasticnet_pipeline(selected, **config.MODEL_CONFIG["elasticnet"])),
     ):
         model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
         model_predictions = model_predictions.assign(model_name=model_name)

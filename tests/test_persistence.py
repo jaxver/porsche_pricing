@@ -9,6 +9,8 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+import config
+
 from elferspot_listings.modeling.persistence import (
     inspect_sklearn_model,
     save_sklearn_model,
@@ -86,6 +88,7 @@ def test_train_baseline_models_writes_model_card_and_optional_artifacts(tmp_path
 
     model_card_path = tmp_path / "MODEL_CARD.md"
     ridge_artifact_path = tmp_path / "artifacts" / "ridge.skops"
+    elasticnet_artifact_path = tmp_path / "artifacts" / "elasticnet.skops"
 
     assert model_card_path.exists()
     assert result.skipped_models.get("skrub_ridge") == "skrub is not installed"
@@ -94,5 +97,12 @@ def test_train_baseline_models_writes_model_card_and_optional_artifacts(tmp_path
 
     if importlib.util.find_spec("skops") is not None:
         assert ridge_artifact_path.exists()
+        assert elasticnet_artifact_path.exists()
     else:
         assert not ridge_artifact_path.exists()
+        assert not elasticnet_artifact_path.exists()
+
+
+def test_config_model_paths_use_skops_artifacts():
+    assert config.MODEL_RIDGE.suffix == ".skops"
+    assert config.MODEL_ELASTICNET.suffix == ".skops"

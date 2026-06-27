@@ -32,14 +32,14 @@ LISTING_URLS_FILE = DATA_DIR / "listing_urls.csv"
 ALL_LISTING_URLS_FILE = DATA_DIR / "all_listing_urls.csv"
 
 # Bronze/Silver/Gold data files
-LISTINGS_BRONZE = DATA_DIR_BRONZE / "listings_bronze.xlsx"
-LISTINGS_SILVER = DATA_DIR_SILVER / "listings_silver.xlsx"
-LISTINGS_GOLD = DATA_DIR_GOLD / "listings_gold.xlsx"
+LISTINGS_BRONZE = DATA_DIR_BRONZE / "all_listings_bronze.xlsx"
+LISTINGS_SILVER = DATA_DIR_SILVER / "all_listings_silver.xlsx"
+LISTINGS_GOLD = DATA_DIR_GOLD / "all_listings_gold.xlsx"
 
 # Model file paths
 MODEL_CATBOOST = MODELS_DIR / "catboost_price_model.cbm"
-MODEL_RIDGE = MODELS_DIR / "ridge_price_model.pkl"
-MODEL_ELASTICNET = MODELS_DIR / "elasticnet_price_model.pkl"
+MODEL_RIDGE = MODELS_DIR / "ridge_price_model.skops"
+MODEL_ELASTICNET = MODELS_DIR / "elasticnet_price_model.skops"
 
 # Feature lists for modeling
 NUMERIC_FEATURES = [
