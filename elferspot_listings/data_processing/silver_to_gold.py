@@ -2,6 +2,7 @@
 Silver to Gold data transformation.
 Applies feature engineering and prepares data for modeling.
 """
+import re
 import pandas as pd
 import numpy as np
 import logging
@@ -74,24 +75,17 @@ def create_model_categories(df: pd.DataFrame) -> pd.DataFrame:
         logger.warning("Model column not found, skipping categorization")
         return df
     
-    # Example categorization - adjust based on your data
+    # Focused on 911 and 718 series (current scraping targets)
     model_mapping = {
         '911': '911',
-        '912': '912',
-        '914': '914',
-        '924': '924',
-        '928': '928',
-        '944': '944',
-        '968': '968',
-        'Boxster': 'Boxster',
-        'Cayman': 'Cayman',
-        'Carrera GT': 'Supercar',
-        '918': 'Supercar',
-        'Cayenne': 'SUV',
-        'Macan': 'SUV',
-        'Panamera': 'Sedan',
-        'Taycan': 'Electric',
+        'Boxster': '718',
+        'Cayman': '718',
     }
+    # Legacy full mapping (commented for reference):
+    # '912': '912', '914': '914', '924': '924', '928': '928',
+    # '944': '944', '968': '968', 'Carrera GT': 'Supercar',
+    # '918': 'Supercar', 'Cayenne': 'SUV', 'Macan': 'SUV',
+    # 'Panamera': 'Sedan', 'Taycan': 'Electric'
     
     def categorize_model(model: str) -> str:
         if pd.isna(model):
@@ -110,14 +104,15 @@ def create_model_categories(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate a quality score for each listing based on completeness.
+    Calculate a quality score for each listing based on completeness
+    and description-derived features.
     Higher score = more complete/quality listing data.
     """
     logger.info("Calculating listing quality scores")
     
     score_components = []
     
-    # Check for presence of key fields
+    # --- Data completeness scoring ---
     if 'Matching numbers' in df.columns:
         score_components.append(
             (df['Matching numbers'] != 'Unknown').astype(int) * 10
@@ -140,12 +135,46 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
     if 'is_fully_restored' in df.columns:
         score_components.append(df['is_fully_restored'] * 20)
     
-    # Low mileage bonus
     if 'Mileage_km' in df.columns:
         mileage_score = np.where(df['Mileage_km'] < 50000, 10, 0)
         score_components.append(pd.Series(mileage_score, index=df.index))
     
-    # Combine scores
+    # --- Description-derived feature extraction ---
+    description_patterns = {
+        'restoration_full': r'\b(?:frame[- ]?off|body[- ]?off|complete restoration|fully restored|fully rebuilt|nut and bolt (?:restoration|rebuild)|completely restored|full restoration|ground[- ]?up restoration|restored to (?:original|factory) specification|mechanically restored|interior refurbishment|engine overhaul)\b',
+        'restoration_partial': r'\b(?:partial restoration|cosmetic refresh|lightly restored|restored in parts)\b',
+        'is_restomod': r'\b(?:backdate|restomod|modified|custom (?:build|interior|paint|exhaust|engine|body))\b',
+        'has_docs': r'\b(?:full (?:documentation|service history|records|history)|extensive records|well documented|fully documented)\b',
+        'is_matching_numbers': r'\b(?:matching numbers|numbers matching|matching drivetrain)\b',
+        'is_mint': r'\b(?:mint condition|collector quality|fully sorted|excellent condition|top condition|showroom condition)\b',
+        'is_race_ready': r'\b(?:rally ready|race[- ]?ready|track[- ]?prepped|bucket seats|racing harness|homologated|fire suppression system)\b',
+        'is_rare': r'\b(?:rare\b|special edition|limited edition|1 of (?:\d+|one)|unique example|only \d+ produced|production number \d+|rwb|singer|guntherwerks|elfwerks)\b',
+        'is_accident_free': r'\b(?:accident[- ]?free|never crashed|clean title|no accidents|undamaged)\b',
+        'has_upgrades': r'\b(?:KW suspension|x51|upgraded brakes|recaro|limited[- ]?slip|aftermarket (?:exhaust|turbo|suspension|intake|wheels)|performance parts|turbo upgrade|weissach package)\b',
+        'first_owner': r'\b(?:first owner|one owner|single owner|original owner|first hand|single registered keeper)\b',
+    }
+    
+    description_weights = {
+        'restoration_full': 2.0,
+        'restoration_partial': 1.5,
+        'is_restomod': 1.7,
+        'has_docs': 0.7,
+        'is_matching_numbers': 1.0,
+        'is_mint': 0.5,
+        'is_race_ready': 2.5,
+        'is_rare': 2.5,
+        'is_accident_free': 0.5,
+        'has_upgrades': 2.3,
+        'first_owner': 1.2,
+    }
+    
+    if 'Description' in df.columns:
+        text_series = df['Description'].fillna("").str.lower()
+        for feature, pattern in description_patterns.items():
+            df[feature] = text_series.str.contains(pattern, regex=True, flags=re.IGNORECASE).astype(int)
+            score_components.append(df[feature] * description_weights[feature])
+    
+    # --- Combine scores ---
     if score_components:
         df['listing_score'] = pd.concat(score_components, axis=1).sum(axis=1)
     else:

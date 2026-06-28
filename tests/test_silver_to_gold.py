@@ -20,11 +20,11 @@ def test_create_log_features_adds_price_and_mileage_columns():
 
 
 def test_create_model_categories_maps_known_models():
-    df = pd.DataFrame({"Model": ["Porsche 911 Carrera", "Cayenne S", "Something Rare"]})
+    df = pd.DataFrame({"Model": ["Porsche 911 Carrera", "Cayman 982", "Something Rare"]})
 
     result = create_model_categories(df)
 
-    assert result["model_category"].tolist() == ["911", "SUV", "Other"]
+    assert result["model_category"].tolist() == ["911", "718", "Other"]
 
 
 def test_calculate_listing_score_uses_available_quality_fields():
