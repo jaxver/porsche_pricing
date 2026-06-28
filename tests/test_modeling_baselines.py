@@ -1,3 +1,6 @@
+import sys
+import types
+
 import pytest
 import pandas as pd
 
@@ -164,3 +167,28 @@ def test_skrub_ridge_pipeline_rejects_non_positive_targets():
 
     with pytest.raises(ValueError, match="positive"):
         model.fit(X, [100000, 0, 200000])
+
+
+def test_xgboost_pipeline_uses_cuda_device_when_requested(monkeypatch):
+    from elferspot_listings.modeling.baselines import build_xgboost_pipeline
+
+    captured = {}
+
+    class FakeXGBRegressor:
+        def __init__(self, **params):
+            captured["params"] = params
+
+    module = types.ModuleType("xgboost")
+    module.XGBRegressor = FakeXGBRegressor
+    monkeypatch.setitem(sys.modules, "xgboost", module)
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+    )
+
+    build_xgboost_pipeline(selected, device="gpu")
+
+    assert captured["params"]["tree_method"] == "hist"
+    assert captured["params"]["device"] == "cuda"

@@ -105,6 +105,67 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
     assert len(model.predict_calls) == 1
 
 
+def test_run_tabpfn_regression_passes_gpu_device_when_constructor_accepts_it(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None, device=None):
+            self.random_state = random_state
+            self.model_path = model_path
+            self.device = device
+
+        def fit(self, X_train, y_train):
+            return self
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    model, predictions, metadata = run_tabpfn_regression(X_train, y_train, X_test, device="gpu")
+
+    assert model.device == "cuda"
+    assert list(predictions) == [321.0]
+    assert "not accepted" not in metadata["notes"].lower()
+
+
+def test_run_tabpfn_regression_skips_gpu_device_when_constructor_rejects_it(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_regression
+
+    captured = {}
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None):
+            captured["random_state"] = random_state
+            captured["model_path"] = model_path
+
+        def fit(self, X_train, y_train):
+            return self
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    model, predictions, metadata = run_tabpfn_regression(X_train, y_train, X_test, device="gpu")
+
+    assert not hasattr(model, "device")
+    assert list(predictions) == [321.0]
+    assert "did not accept" in metadata["notes"].lower()
+
+
 def test_run_tabpfn_regression_rejects_invalid_direct_model_path_before_instantiation(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_regression
 

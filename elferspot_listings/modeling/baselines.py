@@ -104,7 +104,11 @@ def build_elasticnet_pipeline(
     )
 
 
-def build_xgboost_pipeline(selected: SelectedColumns, random_state: int = 42) -> TransformedTargetRegressor:
+def build_xgboost_pipeline(
+    selected: SelectedColumns,
+    random_state: int = 42,
+    device: str = "cpu",
+) -> TransformedTargetRegressor:
     try:
         from xgboost import XGBRegressor
     except ModuleNotFoundError as exc:
@@ -127,6 +131,7 @@ def build_xgboost_pipeline(selected: SelectedColumns, random_state: int = 42) ->
                     random_state=random_state,
                     tree_method="hist",
                     n_jobs=-1,
+                    **({"device": "cuda"} if device == "gpu" else {}),
                 ),
             ),
         ]

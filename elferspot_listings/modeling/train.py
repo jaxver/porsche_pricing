@@ -72,6 +72,8 @@ def tune_catboost_params(
     selected: Any,
     random_state: int = 42,
     n_trials: int = 25,
+    device: str = "cpu",
+    gpu_devices: str | None = None,
 ) -> dict[str, float | int]:
     import optuna
 
@@ -84,7 +86,15 @@ def tune_catboost_params(
             "depth": trial.suggest_int("depth", 3, 8),
             "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 20.0, log=True),
         }
-        model = fit_catboost_regressor(X_tune, y_tune, selected, random_state=random_state, params=params)
+        model = fit_catboost_regressor(
+            X_tune,
+            y_tune,
+            selected,
+            random_state=random_state,
+            params=params,
+            device=device,
+            gpu_devices=gpu_devices,
+        )
         _, metrics = _score_catboost_model(model, X_valid, y_valid)
         return metrics["mae_eur"]
 
@@ -292,6 +302,8 @@ def train_baseline_models(
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
     models: list[str] | None = None,
+    device: str = "cpu",
+    gpu_devices: str | None = None,
 ) -> BenchmarkResult:
     start_time = time.perf_counter()
     requested_models = _normalize_requested_models(models)
@@ -357,7 +369,11 @@ def train_baseline_models(
 
     if _should_run_model(requested_models, "xgboost", legacy_enabled=run_xgboost):
         try:
-            xgboost_model = build_xgboost_pipeline(selected, random_state=random_state)
+            xgboost_model = build_xgboost_pipeline(
+                selected,
+                random_state=random_state,
+                **({"device": device} if device == "gpu" else {}),
+            )
         except ImportError:
             skipped_models["xgboost"] = "xgboost is not installed"
         else:
@@ -389,6 +405,7 @@ def train_baseline_models(
                     random_state=random_state,
                     model_path=normalized_model_path,
                     model_name=model_name,
+                    **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
                 )
             except OptionalDependencyNotInstalledError as exc:
                 missing_tabpfn_message = str(exc)
@@ -422,8 +439,22 @@ def train_baseline_models(
         try:
             catboost_params = None
             if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost) and tune_catboost:
-                catboost_params = tune_catboost_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
-            catboost_model = fit_catboost_regressor(X_train, y_train, selected, random_state=random_state, params=catboost_params)
+                catboost_params = tune_catboost_params(
+                    X_train,
+                    y_train,
+                    selected,
+                    random_state=random_state,
+                    n_trials=tuning_trials,
+                    **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                )
+            catboost_model = fit_catboost_regressor(
+                X_train,
+                y_train,
+                selected,
+                random_state=random_state,
+                params=catboost_params,
+                **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+            )
         except ImportError:
             skipped_models["catboost"] = "catboost is not installed"
         else:

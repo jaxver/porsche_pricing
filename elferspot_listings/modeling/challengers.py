@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 from pathlib import Path
 
@@ -25,6 +26,8 @@ def run_tabpfn_regression(
     random_state: int = 42,
     model_path: str | None = None,
     model_name: str = "tabpfn_default",
+    device: str = "cpu",
+    gpu_devices: str | None = None,
 ) -> tuple[object, object, dict]:
     start = time.perf_counter()
     if model_path not in (None, "default") and not model_path.endswith(".ckpt"):
@@ -41,12 +44,26 @@ def run_tabpfn_regression(
     if model_path not in (None, "default"):
         model_kwargs["model_path"] = model_path
 
+    device_note = None
+    if device == "gpu":
+        accepts_device = False
+        try:
+            accepts_device = "device" in inspect.signature(TabPFNRegressor.__init__).parameters
+        except (TypeError, ValueError):
+            accepts_device = False
+        if accepts_device:
+            model_kwargs["device"] = "cuda"
+        else:
+            device_note = "Requested GPU device, but TabPFN constructor did not accept a device parameter."
+
     model = TabPFNRegressor(**model_kwargs)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     notes = "Default TabPFN checkpoint."
     if checkpoint_label is not None:
         notes = f"Using TabPFN checkpoint {checkpoint_label}."
+    if device_note is not None:
+        notes = f"{notes} {device_note}"
     metadata = {
         "model_name": model_name,
         "model_path": checkpoint_label,

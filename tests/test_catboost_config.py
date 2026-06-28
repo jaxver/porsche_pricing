@@ -76,11 +76,124 @@ def test_fit_catboost_regressor_uses_log_target_and_selected_categorical_columns
 
     assert captured["params"]["random_seed"] == 99
     assert captured["params"]["loss_function"] == "RMSE"
+    assert "task_type" not in captured["params"]
+    assert "devices" not in captured["params"]
     assert captured["pool_cat_features"] == [1, 2]
     np.testing.assert_allclose(captured["pool_label"], np.log(y.to_numpy(dtype=float)))
     assert model is not None
     assert captured["fit_pool"] is not None
     np.testing.assert_allclose(predict_catboost_eur(model, X), [210000.0, 210000.0])
+
+
+def test_fit_catboost_regressor_merges_gpu_params_with_tuned_params(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    class FakePool:
+        def __init__(self, data, label=None, cat_features=None):
+            captured["pool_data"] = data
+            captured["pool_label"] = label
+            captured["pool_cat_features"] = cat_features
+
+    class FakeCatBoostRegressor:
+        def __init__(self, **params):
+            captured["params"] = params
+
+        def fit(self, pool):
+            captured["fit_pool"] = pool
+            return self
+
+        def predict(self, X):
+            return np.log(np.full(len(X), 210000.0))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "catboost",
+        SimpleNamespace(CatBoostRegressor=FakeCatBoostRegressor, Pool=FakePool),
+    )
+
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000.0, 20000.0],
+            "model_category": ["911", "Cayenne"],
+        }
+    )
+    y = pd.Series([100000.0, 120000.0])
+    selected = SelectedColumns(target="price_in_eur", numeric=("Mileage_km",), categorical=("model_category",))
+
+    fit_catboost_regressor(
+        X,
+        y,
+        selected,
+        random_state=99,
+        params={"iterations": 321, "depth": 5},
+        device="gpu",
+        gpu_devices="0",
+    )
+
+    assert captured["params"]["iterations"] == 321
+    assert captured["params"]["depth"] == 5
+    assert captured["params"]["task_type"] == "GPU"
+    assert captured["params"]["devices"] == "0"
+
+
+def test_train_baseline_models_tunes_catboost_on_gpu_and_merges_params(tmp_path, monkeypatch):
+    from elferspot_listings.modeling.baselines import MedianRegressor
+
+    captured: dict[str, Any] = {}
+
+    class FakePool:
+        def __init__(self, data, label=None, cat_features=None):
+            captured.setdefault("pool_calls", []).append((data.copy(), label.copy(), list(cat_features or [])))
+
+    class FakeCatBoostRegressor:
+        def __init__(self, **params):
+            captured["params"] = params
+
+        def fit(self, pool):
+            captured["fit_pool"] = pool
+            return self
+
+        def predict(self, X):
+            return np.log(np.full(len(X), 210000.0))
+
+        def save_model(self, path):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("fake catboost artifact\n", encoding="utf-8")
+
+    fake_catboost = SimpleNamespace(CatBoostRegressor=FakeCatBoostRegressor, Pool=FakePool)
+    monkeypatch.setitem(sys.modules, "catboost", fake_catboost)
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.tune_catboost_params",
+        lambda *args, **kwargs: {"iterations": 123, "learning_rate": 0.03, "depth": 4},
+    )
+
+    gold_df = pd.DataFrame(
+        {
+            "price_in_eur": [100000.0, 120000.0, 140000.0, 160000.0, 180000.0, 200000.0, 220000.0, 240000.0],
+            "Mileage_km": [10000.0, 20000.0, 30000.0, 40000.0, 50000.0, 60000.0, 70000.0, 80000.0],
+            "Year of construction": [1995, 1997, 2000, 2003, 2005, 2008, 2011, 2014],
+            "model_category": ["911", "911", "Cayenne", "Boxster", "Targa", "SUV", "964", "992"],
+        }
+    )
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=17,
+        train_catboost=True,
+        tune_catboost=True,
+        models=["catboost"],
+        device="gpu",
+        gpu_devices="0",
+    )
+
+    assert captured["params"]["iterations"] == 123
+    assert captured["params"]["learning_rate"] == 0.03
+    assert captured["params"]["depth"] == 4
+    assert captured["params"]["task_type"] == "GPU"
+    assert captured["params"]["devices"] == "0"
+    assert "catboost" in result.metrics
 
 
 def test_save_catboost_model_creates_parent_dir_and_saves_native_artifact(tmp_path):
@@ -140,7 +253,7 @@ def test_train_baseline_models_includes_catboost_when_enabled(tmp_path, monkeypa
             self.saved_path = Path(path)
             self.saved_path.write_text("fake catboost artifact\n", encoding="utf-8")
 
-    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None):
+    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None, device="cpu", gpu_devices=None):
         return FakeCatBoostModel()
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
@@ -175,13 +288,13 @@ def test_train_baseline_models_can_tune_catboost_with_optuna(tmp_path, monkeypat
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             Path(path).write_text("fake catboost artifact\n", encoding="utf-8")
 
-    def fake_tune_catboost_params(X_train, y_train, selected, random_state=42, n_trials=25):
+    def fake_tune_catboost_params(X_train, y_train, selected, random_state=42, n_trials=25, device="cpu", gpu_devices=None):
         captured["n_trials"] = n_trials
         captured["random_state"] = random_state
         captured["train_rows"] = len(X_train)
         return {"iterations": 123, "learning_rate": 0.03, "depth": 4}
 
-    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None):
+    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None, device="cpu", gpu_devices=None):
         captured["fit_params"] = params
         return FakeCatBoostModel()
 

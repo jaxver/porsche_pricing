@@ -24,6 +24,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory for benchmark outputs.",
     )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed for the train/test split.")
+    parser.add_argument("--device", choices=("cpu", "gpu"), default="cpu", help="Execution device for benchmark models.")
+    parser.add_argument("--gpu-devices", default=None, help="CatBoost GPU device IDs such as 0 or 0:1.")
     parser.add_argument("--tune", action="store_true", help="Tune ElasticNet and CatBoost when those models are selected.")
     parser.add_argument("--tuning-trials", type=int, default=25, help="Number of Optuna trials for tuning.")
     parser.add_argument(
@@ -46,21 +48,24 @@ def main(argv: list[str] | None = None) -> int:
     model_set = set(models)
     include_optionals = args.include_optionals and "all" in model_set
 
-    result = train_baseline_models(
-        gold_df,
-        args.output_dir,
-        random_state=args.random_state,
-        models=models,
-        train_catboost=include_optionals,
-        tune_elasticnet=args.tune and ("elasticnet" in model_set or "all" in model_set),
-        tune_catboost=args.tune and ("catboost" in model_set or include_optionals),
-        tuning_trials=args.tuning_trials,
-        run_xgboost=include_optionals,
-        run_tabpfn=include_optionals,
-        tabpfn_model_paths=args.tabpfn_checkpoint,
-        run_autogluon=include_optionals,
-        autogluon_time_limit=args.autogluon_time_limit,
-    )
+    train_kwargs = {
+        "random_state": args.random_state,
+        "models": models,
+        "train_catboost": include_optionals,
+        "tune_elasticnet": args.tune and ("elasticnet" in model_set or "all" in model_set),
+        "tune_catboost": args.tune and ("catboost" in model_set or include_optionals),
+        "tuning_trials": args.tuning_trials,
+        "run_xgboost": include_optionals,
+        "run_tabpfn": include_optionals,
+        "tabpfn_model_paths": args.tabpfn_checkpoint,
+        "run_autogluon": include_optionals,
+        "autogluon_time_limit": args.autogluon_time_limit,
+    }
+    if args.device == "gpu" or args.gpu_devices is not None:
+        train_kwargs["device"] = args.device
+        train_kwargs["gpu_devices"] = args.gpu_devices
+
+    result = train_baseline_models(gold_df, args.output_dir, **train_kwargs)
 
     print(
         json.dumps(

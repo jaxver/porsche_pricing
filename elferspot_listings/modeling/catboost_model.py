@@ -21,7 +21,25 @@ def default_catboost_params(random_state: int = 42) -> dict[str, Any]:
     }
 
 
-def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_state: int = 42, params: dict[str, Any] | None = None):
+def _gpu_catboost_params(device: str = "cpu", gpu_devices: str | None = None) -> dict[str, Any]:
+    if device != "gpu":
+        return {}
+
+    params: dict[str, Any] = {"task_type": "GPU"}
+    if gpu_devices is not None:
+        params["devices"] = gpu_devices
+    return params
+
+
+def fit_catboost_regressor(
+    X_train,
+    y_train,
+    selected: SelectedColumns,
+    random_state: int = 42,
+    params: dict[str, Any] | None = None,
+    device: str = "cpu",
+    gpu_devices: str | None = None,
+):
     from catboost import CatBoostRegressor, Pool
 
     frame = pd.DataFrame(X_train).copy()
@@ -38,6 +56,7 @@ def fit_catboost_regressor(X_train, y_train, selected: SelectedColumns, random_s
     model_params = default_catboost_params(random_state=random_state)
     if params:
         model_params.update(params)
+    model_params.update(_gpu_catboost_params(device=device, gpu_devices=gpu_devices))
     model = CatBoostRegressor(**model_params)
     model.fit(train_pool)
     return model

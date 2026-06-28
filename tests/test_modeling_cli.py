@@ -95,3 +95,29 @@ def test_cli_all_optionals_enables_tabpfn_without_checkpoint(monkeypatch, capsys
     assert exit_code == 0
     assert captured["kwargs"]["run_tabpfn"] is True
     assert captured["kwargs"]["tabpfn_model_paths"] is None
+
+
+def test_cli_passes_gpu_flags_to_train_baseline_models(monkeypatch, capsys, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["gold_df"] = gold_df_arg.copy()
+        captured["output_dir"] = Path(output_dir)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(["--model", "catboost", "--device", "gpu", "--gpu-devices", "0"])
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"]["device"] == "gpu"
+    assert captured["kwargs"]["gpu_devices"] == "0"
