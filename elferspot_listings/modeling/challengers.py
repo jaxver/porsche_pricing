@@ -106,8 +106,6 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
         "quota",
         "rate limit",
         "too many requests",
-        "service unavailable",
-        "unavailable",
         "connection",
         "network",
         "timeout",
@@ -126,9 +124,19 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
         "401",
         "403",
     )
+    service_failure_markers = (
+        "503 service unavailable",
+        "connection timeout",
+        "quota exceeded",
+        "dns lookup failed",
+        "proxy connection failed",
+        "rate limit exceeded",
+        "service unavailable",
+        "network unreachable",
+    )
     return any(marker in message for marker in plain_failure_markers) or (
         any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
-    )
+    ) or any(marker in message for marker in service_failure_markers)
 
 
 def run_tabpfn_regression(

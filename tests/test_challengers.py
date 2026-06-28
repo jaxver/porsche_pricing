@@ -519,6 +519,45 @@ def test_run_tabpfn_client_regression_converts_plain_auth_and_access_failures_to
         run_tabpfn_client_regression(X_train, y_train, X_test)
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "503 Service Unavailable",
+        "connection timeout",
+        "quota exceeded",
+        "DNS lookup failed",
+        "proxy connection failed",
+        "rate limit exceeded",
+        "service unavailable",
+        "network unreachable",
+    ],
+)
+def test_run_tabpfn_client_regression_converts_network_quota_service_failures_to_optional_dependency_error(monkeypatch, message):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_client_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            self.fit_calls = []
+
+        def fit(self, X_train, y_train):
+            raise RuntimeError(message)
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = lambda: None
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(OptionalDependencyNotInstalledError, match=r"tabpfn-client|Prior Labs|access token|API access"):
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+
 def test_run_tabpfn_client_regression_propagates_unrelated_training_errors(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
 
