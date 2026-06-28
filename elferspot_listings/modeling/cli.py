@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         tune_catboost=args.tune and ("catboost" in model_set or include_optionals),
         tuning_trials=args.tuning_trials,
         run_xgboost=include_optionals,
+        run_tabpfn=include_optionals,
         tabpfn_model_paths=args.tabpfn_checkpoint,
         run_autogluon=include_optionals,
         autogluon_time_limit=args.autogluon_time_limit,

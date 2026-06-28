@@ -61,6 +61,7 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "tune_catboost": True,
         "tuning_trials": 13,
         "run_xgboost": True,
+        "run_tabpfn": True,
         "tabpfn_model_paths": ["mediumdata", "ood"],
         "run_autogluon": True,
         "autogluon_time_limit": 33,
@@ -70,3 +71,27 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "output_dir": str(tmp_path / "benchmarks" / "cli_run"),
         "skipped_models": {"xgboost": "missing"},
     }
+
+
+def test_cli_all_optionals_enables_tabpfn_without_checkpoint(monkeypatch, capsys, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(["--model", "all", "--include-optionals"])
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"]["run_tabpfn"] is True
+    assert captured["kwargs"]["tabpfn_model_paths"] is None
