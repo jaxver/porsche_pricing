@@ -401,6 +401,30 @@ def test_train_baseline_models_records_missing_tabpfn_client_skip_and_continues(
     )
 
 
+def test_train_baseline_models_records_tabpfn_cuda_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def fake_tabpfn(*_args, **_kwargs):
+        raise OptionalDependencyNotInstalledError(
+            "TabPFN",
+            "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` or install a CUDA-enabled PyTorch build.",
+        )
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run in this test")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True, device="gpu")
+
+    assert "tabpfn_default" not in result.metrics
+    assert result.skipped_models.get("tabpfn_default") == (
+        "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` or install a CUDA-enabled PyTorch build."
+    )
+
+
 def test_train_baseline_models_records_missing_xgboost_skip_and_continues(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 

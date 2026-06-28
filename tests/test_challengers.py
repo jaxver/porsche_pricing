@@ -650,6 +650,63 @@ def test_run_tabpfn_regression_propagates_unrelated_training_errors(monkeypatch)
         run_tabpfn_regression(X_train, y_train, X_test)
 
 
+def test_run_tabpfn_regression_raises_helpful_error_when_local_gpu_cuda_is_unavailable(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None, device=None):
+            self.random_state = random_state
+            self.model_path = model_path
+            self.device = device
+
+        def fit(self, X_train, y_train):
+            raise AssertionError("Torch not compiled with CUDA enabled")
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(
+        OptionalDependencyNotInstalledError,
+        match=r"CUDA|cuda|Torch not compiled with CUDA enabled|CPU|--device cpu",
+    ):
+        run_tabpfn_regression(X_train, y_train, X_test, device="gpu")
+
+
+def test_run_tabpfn_regression_propagates_unrelated_assertion_errors(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None, device=None):
+            self.random_state = random_state
+            self.model_path = model_path
+            self.device = device
+
+        def fit(self, X_train, y_train):
+            raise AssertionError("bad model invariant")
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(AssertionError, match="bad model invariant"):
+        run_tabpfn_regression(X_train, y_train, X_test, device="gpu")
+
+
 def test_run_tabpfn_regression_passes_gpu_device_when_constructor_accepts_it(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_regression
 

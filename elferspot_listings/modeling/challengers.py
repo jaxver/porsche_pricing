@@ -19,6 +19,10 @@ _TABPFN_CLIENT_ACCESS_GUIDANCE = (
     "tabpfn-client API authentication/access failed. Set or access your Prior Labs access token before rerunning, "
     "and retry after resolving any tabpfn-client quota, network, or service availability issue."
 )
+_TABPFN_CUDA_UNAVAILABLE_GUIDANCE = (
+    "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
+    "or install a CUDA-enabled PyTorch build."
+)
 
 
 class OptionalDependencyNotInstalledError(ImportError, RuntimeError):
@@ -75,6 +79,20 @@ def _is_tabpfn_browser_auth_failure(exc: BaseException) -> bool:
         or ("tabpfn" in message and "login" in message)
         or ("tabpfn" in message and "signin" in message)
         or "select.select([sys.stdin]" in message
+    )
+
+
+def _is_tabpfn_cuda_unavailable_failure(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "torch not compiled with cuda enabled",
+            "cuda is unavailable",
+            "cuda unavailable",
+            "cuda not available",
+            "torch/cuda is not available",
+        )
     )
 
 
@@ -180,6 +198,8 @@ def run_tabpfn_regression(
         model = TabPFNRegressor(**model_kwargs)
         model.fit(X_train, y_train)
     except Exception as exc:
+        if device == "gpu" and _is_tabpfn_cuda_unavailable_failure(exc):
+            raise _optional_dependency_error("TabPFN", exc, _TABPFN_CUDA_UNAVAILABLE_GUIDANCE) from exc
         if _is_tabpfn_browser_auth_failure(exc):
             raise _optional_dependency_error("TabPFN", exc, _TABPFN_BROWSER_AUTH_GUIDANCE) from exc
         raise
