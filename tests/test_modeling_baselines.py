@@ -238,6 +238,63 @@ def test_perpetual_pipeline_fits_mixed_dataframe_and_falls_back_when_random_stat
     assert (predictions > 0).all()
 
 
+def test_perpetual_pipeline_retries_without_random_state_on_value_error(monkeypatch):
+    captured = {}
+
+    class FakePerpetualRegressor:
+        def __init__(self, objective, budget, random_state=None):
+            if random_state is not None:
+                raise ValueError("Unknown keyword arguments: dict_keys(['random_state'])")
+            captured["params"] = {"objective": objective, "budget": budget}
+
+        def fit(self, X, y):
+            captured["fit_rows"] = len(X)
+            return self
+
+        def predict(self, X):
+            return np.full(len(X), 123456.0)
+
+    module = types.ModuleType("perpetual")
+    module.PerpetualRegressor = FakePerpetualRegressor
+    monkeypatch.setitem(sys.modules, "perpetual", module)
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+    )
+    X = pd.DataFrame({"Mileage_km": [10000, 25000]})
+    y = [120000, 95000]
+
+    model = build_perpetual_pipeline(selected, random_state=17)
+    model.fit(X, y)
+    predictions = model.predict(X)
+
+    assert captured["params"] == {"objective": "SquaredLoss", "budget": 0.5}
+    assert captured["fit_rows"] == len(X)
+    assert len(predictions) == len(X)
+    assert (predictions > 0).all()
+
+
+def test_perpetual_pipeline_propagates_unrelated_value_error(monkeypatch):
+    class FakePerpetualRegressor:
+        def __init__(self, objective, budget, random_state=None):
+            raise ValueError("invalid budget")
+
+    module = types.ModuleType("perpetual")
+    module.PerpetualRegressor = FakePerpetualRegressor
+    monkeypatch.setitem(sys.modules, "perpetual", module)
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+    )
+
+    with pytest.raises(ValueError, match="invalid budget"):
+        build_perpetual_pipeline(selected, random_state=17)
+
+
 def test_perpetual_pipeline_raises_when_dependency_is_missing(monkeypatch):
     monkeypatch.delitem(sys.modules, "perpetual", raising=False)
     monkeypatch.setitem(sys.modules, "perpetual", None)

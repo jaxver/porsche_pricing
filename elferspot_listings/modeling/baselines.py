@@ -68,6 +68,15 @@ def _exp_target(y):
     return np.exp(np.asarray(y, dtype=float))
 
 
+def _perpetual_rejects_random_state(error: Exception) -> bool:
+    message = str(error).lower()
+    return "random_state" in message and (
+        isinstance(error, TypeError)
+        or "unknown keyword" in message
+        or "unexpected keyword" in message
+    )
+
+
 def build_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
     model = Pipeline(
         steps=[
@@ -155,7 +164,9 @@ def build_perpetual_pipeline(selected: SelectedColumns, random_state: int = 42) 
     }
     try:
         regressor = PerpetualRegressor(**model_kwargs, random_state=random_state)
-    except TypeError:
+    except (TypeError, ValueError) as exc:
+        if not _perpetual_rejects_random_state(exc):
+            raise
         regressor = PerpetualRegressor(**model_kwargs)
 
     model = Pipeline(
