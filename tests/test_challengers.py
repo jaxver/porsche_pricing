@@ -187,6 +187,12 @@ def test_run_autogluon_regression_rejects_clean_output_for_missing_custom_artifa
         temp_path = Path(tmpdir)
         output_dir = temp_path / "results"
         custom_artifact_dir = temp_path / "custom-artifact-dir"
+        broken_target = temp_path / "missing-target"
+
+        try:
+            custom_artifact_dir.symlink_to(broken_target, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"symlink creation is unavailable in this environment: {exc}")
 
         with pytest.raises(ValueError, match="dedicated AutoGluon"):
             run_autogluon_regression(
@@ -200,6 +206,7 @@ def test_run_autogluon_regression_rejects_clean_output_for_missing_custom_artifa
             )
 
         assert not output_dir.exists()
+        assert custom_artifact_dir.is_symlink()
         assert not custom_artifact_dir.exists()
 
 

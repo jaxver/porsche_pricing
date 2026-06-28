@@ -28,6 +28,7 @@ from .baselines import (
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .challengers import (
     OptionalDependencyNotInstalledError,
+    _path_is_symlink_or_junction,
     run_autogluon_regression,
     _validate_autogluon_cleanup_target,
     run_tabpfn_client_regression,
@@ -202,9 +203,14 @@ def _normalize_tabpfn_checkpoint_alias(model_path: str | None) -> tuple[str, str
 
 
 def _cleanup_autogluon_output(output_dir_path: Path, output_path: Path, autogluon_trained: bool) -> None:
-    if autogluon_trained or not output_path.exists():
+    if autogluon_trained:
         return
-    _validate_autogluon_cleanup_target(output_dir_path, output_path)
+    if _path_is_symlink_or_junction(output_dir_path) or _path_is_symlink_or_junction(output_path):
+        _validate_autogluon_cleanup_target(output_dir_path, output_path)
+    elif not output_path.exists():
+        return
+    else:
+        _validate_autogluon_cleanup_target(output_dir_path, output_path)
     if output_path.is_dir():
         shutil.rmtree(output_path)
     elif output_path.exists():
@@ -330,6 +336,8 @@ def train_baseline_models(
     gpu_devices: str | None = None,
 ) -> BenchmarkResult:
     start_time = time.perf_counter()
+    if autogluon_dynamic_stacking is not None and type(autogluon_dynamic_stacking) is not bool:
+        raise TypeError("autogluon_dynamic_stacking must be None, True, or False")
     requested_models = _normalize_requested_models(models)
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)

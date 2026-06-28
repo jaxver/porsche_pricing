@@ -52,6 +52,26 @@ def test_train_baseline_models_with_ridge_only_runs_ridge(tmp_path, monkeypatch)
     assert result.predictions["row_index"].tolist() == _expected_holdout_indices(_gold_frame())
 
 
+def test_train_baseline_models_rejects_invalid_autogluon_dynamic_stacking_even_without_autogluon(tmp_path, monkeypatch):
+    monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("skrub_ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("xgboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda _selected: DummyRegressor(strategy="mean"))
+
+    with pytest.raises((TypeError, ValueError), match="autogluon_dynamic_stacking"):
+        train_baseline_models(
+            _gold_frame(),
+            tmp_path,
+            random_state=42,
+            models=["ridge"],
+            autogluon_dynamic_stacking="auto",  # type: ignore[arg-type]
+        )
+
+
 def test_train_baseline_models_with_xgboost_only_runs_xgboost_without_boolean_flag(tmp_path, monkeypatch):
     monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
     monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("ridge should not run")))
@@ -622,22 +642,21 @@ def test_train_baseline_models_cleans_stale_autogluon_output_when_not_running(tm
 
 def test_train_baseline_models_rejects_unsafe_autogluon_cleanup_path(tmp_path, monkeypatch):
     gold_df = _gold_frame()
-    stale_dir = tmp_path / "autogluon"
-    stale_dir.mkdir(parents=True)
-    (stale_dir / "leaderboard.csv").write_text("stale", encoding="utf-8")
+    autogluon_target = tmp_path / "autogluon"
+    broken_target = tmp_path / "missing-target"
 
-    def raise_if_fit_runs(*_args, **_kwargs):
-        raise AssertionError("autogluon fit should not run when cleanup path is unsafe")
+    try:
+        autogluon_target.symlink_to(broken_target, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable in this environment: {exc}")
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
-    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", raise_if_fit_runs)
-    monkeypatch.setattr(Path, "is_symlink", lambda self: self == stale_dir)
 
     with pytest.raises(ValueError, match="dedicated AutoGluon"):
         train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=False)
 
-    assert stale_dir.exists()
-    assert (stale_dir / "leaderboard.csv").exists()
+    assert autogluon_target.is_symlink()
+    assert not autogluon_target.exists()
 
 
 
