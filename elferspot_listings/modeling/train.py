@@ -26,6 +26,19 @@ from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_MODEL_NAMES = {
+    "median",
+    "ridge",
+    "elasticnet",
+    "skrub_ridge",
+    "xgboost",
+    "catboost",
+    "tabpfn",
+    "autogluon",
+    "all",
+}
+DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge")
+
 
 def tune_elasticnet_params(
     X_train: pd.DataFrame,
@@ -204,6 +217,25 @@ def _cleanup_written_sklearn_artifacts(artifact_paths: list[Path]) -> None:
             artifact_path.unlink()
 
 
+def _normalize_requested_models(models: list[str] | None) -> set[str] | None:
+    if models is None:
+        return None
+    invalid_models = sorted({model_name for model_name in models if model_name not in SUPPORTED_MODEL_NAMES})
+    if invalid_models:
+        raise ValueError(
+            f"Unsupported model names: {', '.join(invalid_models)}. Supported models: {', '.join(sorted(SUPPORTED_MODEL_NAMES))}"
+        )
+    return set(models)
+
+
+def _should_run_model(requested_models: set[str] | None, model_name: str, legacy_enabled: bool) -> bool:
+    if requested_models is None:
+        return legacy_enabled
+    if "all" in requested_models:
+        return model_name in DEFAULT_MODEL_NAMES or model_name in requested_models or legacy_enabled
+    return model_name in requested_models
+
+
 def _benchmark_metrics_for_db(metrics: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
     return {
         model_name: {
@@ -259,8 +291,10 @@ def train_baseline_models(
     tabpfn_model_paths: list[str | None] | None = None,
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
+    models: list[str] | None = None,
 ) -> BenchmarkResult:
     start_time = time.perf_counter()
+    requested_models = _normalize_requested_models(models)
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)
 
@@ -277,34 +311,51 @@ def train_baseline_models(
     saved_artifact_models: set[str] = set()
     saved_artifact_paths: list[Path] = []
 
-    elasticnet_params = config.MODEL_CONFIG["elasticnet"]
-    if tune_elasticnet:
+    elasticnet_params = dict(config.MODEL_CONFIG["elasticnet"])
+    if _should_run_model(requested_models, "elasticnet", legacy_enabled=True) and tune_elasticnet:
         elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
 
-    for model_name, model in (
-        ("median", MedianRegressor()),
-        ("ridge", build_ridge_pipeline(selected)),
-        ("elasticnet", build_elasticnet_pipeline(selected, **elasticnet_params)),
-    ):
+    if _should_run_model(requested_models, "median", legacy_enabled=True):
+        model = MedianRegressor()
         model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
-        model_predictions = model_predictions.assign(model_name=model_name)
-        metrics[model_name] = model_metrics
+        model_predictions = model_predictions.assign(model_name="median")
+        metrics["median"] = model_metrics
         prediction_frames.append(model_predictions)
-        if model_name != "median":
-            baseline_artifact_models[model_name] = model
 
-    try:
-        skrub_model = build_skrub_ridge_pipeline(selected)
-    except ImportError:
-        skipped_models["skrub_ridge"] = "skrub is not installed"
-    else:
-        model_predictions, model_metrics = _score_model(skrub_model, X_train, y_train, X_test, y_test)
-        model_predictions = model_predictions.assign(model_name="skrub_ridge")
-        metrics["skrub_ridge"] = model_metrics
+    if _should_run_model(requested_models, "ridge", legacy_enabled=True):
+        ridge_model = build_ridge_pipeline(selected)
+        model_predictions, model_metrics = _score_model(ridge_model, X_train, y_train, X_test, y_test)
+        model_predictions = model_predictions.assign(model_name="ridge")
+        metrics["ridge"] = model_metrics
         prediction_frames.append(model_predictions)
-        baseline_artifact_models["skrub_ridge"] = skrub_model
+        baseline_artifact_models["ridge"] = ridge_model
 
-    if run_xgboost:
+    if _should_run_model(requested_models, "elasticnet", legacy_enabled=True):
+        elasticnet_model = build_elasticnet_pipeline(
+            selected,
+            alpha=float(elasticnet_params["alpha"]),
+            l1_ratio=float(elasticnet_params["l1_ratio"]),
+            max_iter=int(elasticnet_params["max_iter"]),
+        )
+        model_predictions, model_metrics = _score_model(elasticnet_model, X_train, y_train, X_test, y_test)
+        model_predictions = model_predictions.assign(model_name="elasticnet")
+        metrics["elasticnet"] = model_metrics
+        prediction_frames.append(model_predictions)
+        baseline_artifact_models["elasticnet"] = elasticnet_model
+
+    if _should_run_model(requested_models, "skrub_ridge", legacy_enabled=True):
+        try:
+            skrub_model = build_skrub_ridge_pipeline(selected)
+        except ImportError:
+            skipped_models["skrub_ridge"] = "skrub is not installed"
+        else:
+            model_predictions, model_metrics = _score_model(skrub_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="skrub_ridge")
+            metrics["skrub_ridge"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["skrub_ridge"] = skrub_model
+
+    if _should_run_model(requested_models, "xgboost", legacy_enabled=run_xgboost):
         try:
             xgboost_model = build_xgboost_pipeline(selected, random_state=random_state)
         except ImportError:
@@ -316,7 +367,12 @@ def train_baseline_models(
             prediction_frames.append(model_predictions)
             baseline_artifact_models["xgboost"] = xgboost_model
 
-    tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if run_tabpfn else [])
+    should_run_tabpfn = _should_run_model(
+        requested_models,
+        "tabpfn",
+        legacy_enabled=run_tabpfn or tabpfn_model_paths is not None,
+    )
+    tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
     if tabpfn_requests:
         tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
         missing_tabpfn_message: str | None = None
@@ -342,7 +398,7 @@ def train_baseline_models(
                 metrics[model_name] = model_metrics
                 prediction_frames.append(model_predictions)
 
-    if run_autogluon:
+    if _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon):
         autogluon_train_df = X_train.copy()
         autogluon_train_df["price_in_eur"] = y_train.to_numpy(dtype=float)
         autogluon_test_df = X_test.copy()
@@ -362,10 +418,10 @@ def train_baseline_models(
             metrics["autogluon"] = model_metrics
             prediction_frames.append(model_predictions)
 
-    if train_catboost:
+    if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost):
         try:
             catboost_params = None
-            if tune_catboost:
+            if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost) and tune_catboost:
                 catboost_params = tune_catboost_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
             catboost_model = fit_catboost_regressor(X_train, y_train, selected, random_state=random_state, params=catboost_params)
         except ImportError:

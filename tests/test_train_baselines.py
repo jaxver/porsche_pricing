@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import importlib.util
 from pathlib import Path
+from sklearn.dummy import DummyRegressor
 
 import config
 import pandas as pd
@@ -30,6 +31,44 @@ def _gold_frame() -> pd.DataFrame:
 def _expected_holdout_indices(frame: pd.DataFrame) -> list[int]:
     train_index, test_index = train_test_split(frame.index, test_size=0.25, random_state=42)
     return list(test_index)
+
+
+def test_train_baseline_models_with_ridge_only_runs_ridge(tmp_path, monkeypatch):
+    monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("skrub_ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("xgboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda _selected: DummyRegressor(strategy="mean"))
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["ridge"])
+
+    assert set(result.metrics) == {"ridge"}
+    assert set(result.predictions["model_name"]) == {"ridge"}
+    assert result.predictions["row_index"].tolist() == _expected_holdout_indices(_gold_frame())
+
+
+def test_train_baseline_models_with_xgboost_only_runs_xgboost_without_boolean_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("skrub_ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda _selected, random_state=42: DummyRegressor(strategy="mean"))
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["xgboost"])
+
+    assert set(result.metrics) == {"xgboost"}
+    assert set(result.predictions["model_name"]) == {"xgboost"}
+
+
+def test_train_baseline_models_rejects_invalid_model_name(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported model names"):
+        train_baseline_models(_gold_frame(), tmp_path, models=["bogus"])
 
 
 def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monkeypatch):
