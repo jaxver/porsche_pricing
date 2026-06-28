@@ -57,6 +57,154 @@ def test_run_autogluon_regression_raises_helpful_error_when_dependency_is_missin
         run_autogluon_regression(train_df, test_df, "price_in_eur", ".")
 
 
+def test_run_autogluon_regression_passes_presets_and_dynamic_stacking_when_requested(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    captured = {}
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets, dynamic_stacking=None):
+            captured["fit_kwargs"] = {
+                "time_limit": time_limit,
+                "presets": presets,
+                "dynamic_stacking": dynamic_stacking,
+            }
+            return self
+
+        def predict(self, features):
+            return pd.Series([654.0], index=features.index)
+
+        def leaderboard(self, data, silent):
+            return pd.DataFrame({"model": ["fake"], "score": [0.0]})
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    _, _, _, metadata = run_autogluon_regression(
+        train_df,
+        test_df,
+        "price_in_eur",
+        ".",
+        time_limit=15,
+        presets="medium_quality",
+        dynamic_stacking="true",
+    )
+
+    assert captured["fit_kwargs"] == {"time_limit": 15, "presets": "medium_quality", "dynamic_stacking": True}
+    assert metadata["presets"] == "medium_quality"
+    assert metadata["dynamic_stacking"] == "true"
+
+
+def test_run_autogluon_regression_omits_dynamic_stacking_when_auto(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    captured = {}
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets):
+            captured["fit_kwargs"] = {"time_limit": time_limit, "presets": presets}
+            return self
+
+        def predict(self, features):
+            return pd.Series([654.0], index=features.index)
+
+        def leaderboard(self, data, silent):
+            return pd.DataFrame({"model": ["fake"], "score": [0.0]})
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    _, _, _, metadata = run_autogluon_regression(
+        train_df,
+        test_df,
+        "price_in_eur",
+        ".",
+        time_limit=15,
+        presets="high_quality",
+    )
+
+    assert captured["fit_kwargs"] == {"time_limit": 15, "presets": "high_quality"}
+    assert metadata["presets"] == "high_quality"
+    assert metadata["dynamic_stacking"] == "auto"
+
+
+def test_run_autogluon_regression_cleans_existing_artifact_dir_when_requested(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    captured = {}
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets):
+            captured["stale_exists_during_fit"] = Path(self.path, "stale.txt").exists()
+            return self
+
+        def predict(self, features):
+            return pd.Series([654.0], index=features.index)
+
+        def leaderboard(self, data, silent):
+            return pd.DataFrame({"model": ["fake"], "score": [0.0]})
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "results"
+        artifact_dir = output_dir / "autogluon"
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "stale.txt").write_text("old data", encoding="utf-8")
+
+        run_autogluon_regression(
+            train_df,
+            test_df,
+            "price_in_eur",
+            output_dir,
+            time_limit=15,
+            clean_output=True,
+        )
+
+        assert not (artifact_dir / "stale.txt").exists()
+        assert captured["stale_exists_during_fit"] is False
+
+
 def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_regression
 

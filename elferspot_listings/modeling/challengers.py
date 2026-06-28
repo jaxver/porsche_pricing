@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import time
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -163,6 +164,9 @@ def run_autogluon_regression(
     output_dir: str | Path,
     time_limit: int = 600,
     artifact_dir: str | Path | None = None,
+    presets: str = "best_quality",
+    dynamic_stacking: str = "auto",
+    clean_output: bool = False,
 ) -> tuple[object, object, pd.DataFrame, dict]:
     start = time.perf_counter()
     try:
@@ -171,13 +175,21 @@ def run_autogluon_regression(
         raise _optional_dependency_error("AutoGluon", exc) from exc
 
     output_path = Path(artifact_dir) if artifact_dir is not None else Path(output_dir) / "autogluon"
+    if clean_output and output_path.exists():
+        if output_path.is_dir():
+            shutil.rmtree(output_path)
+        else:
+            output_path.unlink()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(
-        train_df,
-        time_limit=time_limit,
-        presets="best_quality",
-    )
+    fit_kwargs: dict[str, object] = {
+        "time_limit": time_limit,
+        "presets": presets,
+    }
+    if dynamic_stacking != "auto":
+        fit_kwargs["dynamic_stacking"] = dynamic_stacking == "true"
+
+    predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(train_df, **fit_kwargs)
     features = test_df.drop(columns=[target], errors="ignore")
     predictions = predictor.predict(features)
     leaderboard = predictor.leaderboard(test_df, silent=True)
@@ -186,6 +198,8 @@ def run_autogluon_regression(
         "model_name": "autogluon",
         "runtime_seconds": time.perf_counter() - start,
         "time_limit_seconds": time_limit,
-        "presets": "best_quality",
+        "presets": presets,
+        "dynamic_stacking": dynamic_stacking,
+        "clean_output": clean_output,
     }
     return predictor, predictions, leaderboard, metadata

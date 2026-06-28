@@ -71,6 +71,9 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "tabpfn_thinking_metric": "rmse",
         "run_autogluon": True,
         "autogluon_time_limit": 33,
+        "autogluon_presets": "best_quality",
+        "autogluon_dynamic_stacking": "auto",
+        "autogluon_clean_output": False,
     }
     assert printed == {
         "metrics": {"ridge": {"mae_eur": 123.4}},
@@ -142,6 +145,9 @@ def test_cli_perpetual_model_only_passes_only_that_model(monkeypatch, capsys, tm
         "tabpfn_thinking_metric": "rmse",
         "run_autogluon": False,
         "autogluon_time_limit": 600,
+        "autogluon_presets": "best_quality",
+        "autogluon_dynamic_stacking": "auto",
+        "autogluon_clean_output": False,
     }
 
 
@@ -223,6 +229,9 @@ def test_cli_passes_tabpfn_client_thinking_kwargs(monkeypatch, capsys, tmp_path)
         "tabpfn_thinking_metric": "mae",
         "run_autogluon": False,
         "autogluon_time_limit": 600,
+        "autogluon_presets": "best_quality",
+        "autogluon_dynamic_stacking": "auto",
+        "autogluon_clean_output": False,
     }
 
 

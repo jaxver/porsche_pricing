@@ -484,14 +484,38 @@ def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_fra
 
     captured = {}
 
-    def fake_autogluon(train_df, test_df, target, output_dir, time_limit=600, artifact_dir=None):
+    def fake_autogluon(
+        train_df,
+        test_df,
+        target,
+        output_dir,
+        time_limit=600,
+        artifact_dir=None,
+        presets="best_quality",
+        dynamic_stacking="auto",
+        clean_output=False,
+    ):
         captured["train_df"] = train_df.copy()
         captured["test_df"] = test_df.copy()
         captured["target"] = target
         captured["output_dir"] = Path(output_dir)
         captured["time_limit"] = time_limit
         captured["artifact_dir"] = artifact_dir
-        return object(), pd.Series([222.0] * len(test_df), index=test_df.index), pd.DataFrame({"model": ["fake"], "score": [0.5]}), {"model_name": "autogluon", "runtime_seconds": 0.0, "time_limit_seconds": time_limit, "presets": "best_quality"}
+        captured["presets"] = presets
+        captured["dynamic_stacking"] = dynamic_stacking
+        captured["clean_output"] = clean_output
+        return (
+            object(),
+            pd.Series([222.0] * len(test_df), index=test_df.index),
+            pd.DataFrame({"model": ["fake"], "score": [0.5]}),
+            {
+                "model_name": "autogluon",
+                "runtime_seconds": 0.0,
+                "time_limit_seconds": time_limit,
+                "presets": presets,
+                "dynamic_stacking": dynamic_stacking,
+            },
+        )
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
     monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
@@ -505,6 +529,9 @@ def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_fra
     )
     assert captured["target"] == "price_in_eur"
     assert captured["time_limit"] == 33
+    assert captured["presets"] == "best_quality"
+    assert captured["dynamic_stacking"] == "auto"
+    assert captured["clean_output"] is False
     assert set(captured["train_df"].columns) == set(gold_df.columns)
     assert set(captured["test_df"].columns) == set(gold_df.columns)
     assert "price_in_eur" in captured["train_df"].columns

@@ -57,9 +57,11 @@ python -m elferspot_listings.modeling.cli --model perpetual
 python -m elferspot_listings.modeling.cli --model catboost --tune
 python -m elferspot_listings.modeling.cli --model tabpfn --tabpfn-checkpoint default --tabpfn-checkpoint mediumdata --tabpfn-checkpoint ood
 python -m elferspot_listings.modeling.cli --model all --include-optionals --tune
+python -m elferspot_listings.modeling.cli --model autogluon --autogluon-presets medium_quality --autogluon-dynamic-stacking false --autogluon-clean-output
+python -m elferspot_listings.modeling.cli --model all --include-optionals --autogluon-presets high_quality --autogluon-dynamic-stacking false --autogluon-clean-output
 ```
 
-TabPFN may download checkpoints on first use, AutoGluon can generate large local benchmark artifacts, and Perpetual uses the same optional install path.
+TabPFN may download checkpoints on first use, AutoGluon can generate large local benchmark artifacts, and Perpetual uses the same optional install path. AutoGluon dynamic stacking is optional; set it to `false` for faster, repeatable runs. If you install `ray`, AutoGluon can parallelize fold fitting, but it is not required for the CLI.
 
 For local TabPFN runs, PowerShell examples:
 

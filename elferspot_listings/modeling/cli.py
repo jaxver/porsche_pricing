@@ -60,6 +60,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Thinking metric for the TabPFN client backend.",
     )
     parser.add_argument("--autogluon-time-limit", type=int, default=600, help="Time limit in seconds for AutoGluon.")
+    parser.add_argument("--autogluon-presets", default="best_quality", help="AutoGluon presets passed to fit.")
+    parser.add_argument(
+        "--autogluon-dynamic-stacking",
+        choices=("auto", "true", "false"),
+        default="auto",
+        help="AutoGluon dynamic stacking mode.",
+    )
+    parser.add_argument("--autogluon-clean-output", action="store_true", help="Remove the AutoGluon artifact dir before fitting.")
     parser.add_argument("--include-optionals", action="store_true", help="Run optional models when used together with --model all.")
     return parser
 
@@ -97,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
         "tabpfn_thinking_metric": args.tabpfn_thinking_metric,
         "run_autogluon": include_optionals,
         "autogluon_time_limit": args.autogluon_time_limit,
+        "autogluon_presets": args.autogluon_presets,
+        "autogluon_dynamic_stacking": args.autogluon_dynamic_stacking,
+        "autogluon_clean_output": args.autogluon_clean_output,
     }
     if args.device == "gpu" or args.gpu_devices is not None:
         train_kwargs["device"] = args.device

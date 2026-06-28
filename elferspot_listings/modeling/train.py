@@ -320,6 +320,9 @@ def train_baseline_models(
     tabpfn_thinking_metric: str = "rmse",
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
+    autogluon_presets: str = "best_quality",
+    autogluon_dynamic_stacking: str = "auto",
+    autogluon_clean_output: bool = False,
     models: list[str] | None = None,
     device: str = "cpu",
     gpu_devices: str | None = None,
@@ -488,6 +491,9 @@ def train_baseline_models(
                 "price_in_eur",
                 output_path,
                 time_limit=autogluon_time_limit,
+                presets=autogluon_presets,
+                dynamic_stacking=autogluon_dynamic_stacking,
+                clean_output=autogluon_clean_output,
             )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["autogluon"] = str(exc)
