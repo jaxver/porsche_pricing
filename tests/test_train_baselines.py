@@ -6,6 +6,7 @@ from pathlib import Path
 
 import config
 import pandas as pd
+import pytest
 from sklearn.model_selection import train_test_split
 
 from elferspot_listings.modeling import benchmark_db
@@ -283,6 +284,13 @@ def test_train_baseline_models_appends_explicit_tabpfn_checkpoint_variants(tmp_p
     ]
     assert {"tabpfn_default", "tabpfn_mediumdata", "tabpfn_ood"}.issubset(result.metrics)
     assert {"tabpfn_default", "tabpfn_mediumdata", "tabpfn_ood"}.issubset(set(result.predictions["model_name"]))
+
+
+def test_normalize_tabpfn_checkpoint_alias_rejects_unknown_aliases():
+    from elferspot_listings.modeling.train import _normalize_tabpfn_checkpoint_alias
+
+    with pytest.raises(ValueError, match="Supported aliases"):
+        _normalize_tabpfn_checkpoint_alias("mystery")
 
 
 def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_frame(tmp_path, monkeypatch):

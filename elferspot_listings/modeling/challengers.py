@@ -32,6 +32,7 @@ def run_tabpfn_regression(
     except ImportError as exc:
         raise _optional_dependency_error("TabPFN", exc) from exc
 
+    checkpoint_label = Path(model_path).name if model_path not in (None, "default") else None
     model_kwargs: dict[str, object] = {"random_state": random_state}
     if model_path not in (None, "default"):
         model_kwargs["model_path"] = model_path
@@ -40,11 +41,11 @@ def run_tabpfn_regression(
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     notes = "Default TabPFN checkpoint."
-    if model_path not in (None, "default"):
-        notes = f"Using TabPFN checkpoint {model_path}."
+    if checkpoint_label is not None:
+        notes = f"Using TabPFN checkpoint {checkpoint_label}."
     metadata = {
         "model_name": model_name,
-        "model_path": model_path,
+        "model_path": checkpoint_label,
         "runtime_seconds": time.perf_counter() - start,
         "notes": f"{notes} First run may download TabPFN checkpoints.",
     }

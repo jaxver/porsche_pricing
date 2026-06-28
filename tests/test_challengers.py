@@ -88,20 +88,49 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
         y_train,
         X_test,
         random_state=17,
-        model_path="some.ckpt",
+        model_path="nested/local/some.ckpt",
         model_name="tabpfn_custom",
     )
 
     assert isinstance(model, FakeTabPFNRegressor)
     assert model.random_state == 17
-    assert model.model_path == "some.ckpt"
+    assert model.model_path == "nested/local/some.ckpt"
     assert list(predictions) == [321.0]
     assert metadata["model_name"] == "tabpfn_custom"
     assert metadata["model_path"] == "some.ckpt"
     assert metadata["runtime_seconds"] >= 0
     assert "checkpoint" in metadata["notes"].lower()
+    assert "nested/local/some.ckpt" not in metadata["notes"]
     assert len(model.fit_calls) == 1
     assert len(model.predict_calls) == 1
+
+
+def test_run_tabpfn_regression_preserves_safe_label_for_windows_paths(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None):
+            self.random_state = random_state
+            self.model_path = model_path
+
+        def fit(self, X_train, y_train):
+            return self
+
+        def predict(self, X_test):
+            return pd.Series([123.0], index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0]})
+    y_train = pd.Series([10.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    _, _, metadata = run_tabpfn_regression(X_train, y_train, X_test, model_path=r"C:\temp\tabpfn\tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt")
+
+    assert metadata["model_path"] == "tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt"
+    assert r"C:\temp\tabpfn\tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt" not in metadata["notes"]
 
 
 def test_run_autogluon_regression_uses_default_and_custom_artifact_dirs(monkeypatch):

@@ -156,10 +156,12 @@ def _normalize_tabpfn_checkpoint_alias(model_path: str | None) -> tuple[str, str
         return "tabpfn_mediumdata", "tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt"
     if model_path == "ood":
         return "tabpfn_ood", "tabpfn-v3-regressor-v3_20260506_ood.ckpt"
-    if model_path.endswith(".ckpt"):
-        safe_stem = re.sub(r"[^0-9A-Za-z]+", "_", Path(model_path).stem).strip("_") or "custom"
-        return f"tabpfn_{safe_stem.lower()}", model_path
-    return f"tabpfn_{re.sub(r'[^0-9A-Za-z]+', '_', model_path).strip('_').lower() or 'custom'}", model_path
+    if not model_path.endswith(".ckpt"):
+        raise ValueError(
+            f"Unsupported TabPFN checkpoint alias '{model_path}'. Supported aliases: None/default, mediumdata, ood, or a string ending in .ckpt."
+        )
+    safe_stem = re.sub(r"[^0-9A-Za-z]+", "_", Path(model_path).stem).strip("_") or "custom"
+    return f"tabpfn_{safe_stem.lower()}", model_path
 
 
 def _cleanup_autogluon_output(output_path: Path, autogluon_trained: bool) -> None:
