@@ -21,8 +21,7 @@ elferspot_prod/
 ├── results/                      # Benchmark and analysis outputs (gitignored)
 ├── logs/                         # Runtime logs (gitignored)
 ├── catboost_info/                # CatBoost training output (gitignored)
-├── requirements.txt              # Default install
-├── requirements-advanced.txt     # Optional challenger install
+├── pyproject.toml                # Project metadata and dependency extras
 ├── notebooks/                    # Curated notebook workflow
 └── tests/                        # Minimal smoke tests
 ```
@@ -32,15 +31,9 @@ elferspot_prod/
 Default install and smoke checks:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -e .
 pytest
 streamlit run app/streamlit_app.py
-```
-
-If `pytest` is intercepted in this environment, use:
-
-```powershell
-rtk proxy pytest
 ```
 
 ## Advanced Benchmark Setup
@@ -48,10 +41,10 @@ rtk proxy pytest
 For the optional TabPFN and AutoGluon comparison path:
 
 ```powershell
-python -m pip install -r requirements-advanced.txt
+python -m pip install -e ".[advanced]"
 ```
 
-TabPFN may download checkpoints the first time it is used. AutoGluon can create large local benchmark artifacts, so keep that path separate from the default install and only run it when you need the full challenger comparison.
+TabPFN may download checkpoints the first time it is used. AutoGluon can create large local benchmark artifacts, so keep the advanced extras separate from the default install and only run them when you need the full challenger comparison.
 
 ## Notebook Workflow
 

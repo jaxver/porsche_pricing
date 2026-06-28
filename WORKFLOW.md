@@ -103,5 +103,4 @@ Commit notebooks as reproducible source, not arbitrary executed state:
 ## Notes
 
 - Use `pytest` for local smoke checks.
-- If `pytest` is intercepted in this environment, use `rtk proxy pytest`.
 - Keep notebook logic focused on narrative and analysis, not duplicated pipeline code.
