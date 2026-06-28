@@ -321,7 +321,7 @@ def train_baseline_models(
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
     autogluon_presets: str = "best_quality",
-    autogluon_dynamic_stacking: str = "auto",
+    autogluon_dynamic_stacking: bool | None = None,
     autogluon_clean_output: bool = False,
     models: list[str] | None = None,
     device: str = "cpu",

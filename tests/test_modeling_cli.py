@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 
 def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
@@ -72,7 +73,7 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "run_autogluon": True,
         "autogluon_time_limit": 33,
         "autogluon_presets": "best_quality",
-        "autogluon_dynamic_stacking": "auto",
+        "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
     }
     assert printed == {
@@ -146,7 +147,7 @@ def test_cli_perpetual_model_only_passes_only_that_model(monkeypatch, capsys, tm
         "run_autogluon": False,
         "autogluon_time_limit": 600,
         "autogluon_presets": "best_quality",
-        "autogluon_dynamic_stacking": "auto",
+        "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
     }
 
@@ -230,9 +231,36 @@ def test_cli_passes_tabpfn_client_thinking_kwargs(monkeypatch, capsys, tmp_path)
         "run_autogluon": False,
         "autogluon_time_limit": 600,
         "autogluon_presets": "best_quality",
-        "autogluon_dynamic_stacking": "auto",
+        "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("cli_value", "expected"),
+    [("true", True), ("false", False)],
+)
+def test_cli_converts_autogluon_dynamic_stacking_strings(monkeypatch, capsys, tmp_path, cli_value, expected):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(["--model", "autogluon", "--autogluon-dynamic-stacking", cli_value])
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"]["autogluon_dynamic_stacking"] is expected
 
 
 def test_cli_rejects_tabpfn_thinking_with_local_backend(monkeypatch, tmp_path):

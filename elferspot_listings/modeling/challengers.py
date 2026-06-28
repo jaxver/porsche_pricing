@@ -165,7 +165,7 @@ def run_autogluon_regression(
     time_limit: int = 600,
     artifact_dir: str | Path | None = None,
     presets: str = "best_quality",
-    dynamic_stacking: str = "auto",
+    dynamic_stacking: bool | None = None,
     clean_output: bool = False,
 ) -> tuple[object, object, pd.DataFrame, dict]:
     start = time.perf_counter()
@@ -174,8 +174,26 @@ def run_autogluon_regression(
     except ImportError as exc:
         raise _optional_dependency_error("AutoGluon", exc) from exc
 
-    output_path = Path(artifact_dir) if artifact_dir is not None else Path(output_dir) / "autogluon"
+    output_dir_path = Path(output_dir)
+    output_path = Path(artifact_dir) if artifact_dir is not None else output_dir_path / "autogluon"
     if clean_output and output_path.exists():
+        allowed_cleanup_dir = output_dir_path / "autogluon"
+        if artifact_dir is not None and output_path != allowed_cleanup_dir:
+            try:
+                output_resolved = output_path.resolve(strict=False)
+                allowed_resolved = allowed_cleanup_dir.resolve(strict=False)
+            except OSError as exc:
+                raise ValueError(
+                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+                ) from exc
+            if output_path.name != "autogluon" or not output_resolved.is_relative_to(output_dir_path.resolve(strict=False)):
+                raise ValueError(
+                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+                )
+            if output_resolved != allowed_resolved:
+                raise ValueError(
+                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+                )
         if output_path.is_dir():
             shutil.rmtree(output_path)
         else:
@@ -186,8 +204,8 @@ def run_autogluon_regression(
         "time_limit": time_limit,
         "presets": presets,
     }
-    if dynamic_stacking != "auto":
-        fit_kwargs["dynamic_stacking"] = dynamic_stacking == "true"
+    if dynamic_stacking is not None:
+        fit_kwargs["dynamic_stacking"] = dynamic_stacking
 
     predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(train_df, **fit_kwargs)
     features = test_df.drop(columns=[target], errors="ignore")

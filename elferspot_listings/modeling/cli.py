@@ -13,6 +13,16 @@ from .train import train_baseline_models
 MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "xgboost", "perpetual", "catboost", "tabpfn", "autogluon", "all"]
 
 
+def _parse_autogluon_dynamic_stacking(value: str) -> bool | None:
+    if value == "auto":
+        return None
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"Unsupported AutoGluon dynamic stacking value: {value}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run model benchmarks and print JSON metrics.")
     parser.add_argument("--model", action="append", choices=MODEL_CHOICES, default=None, help="Model to run; repeat for multiple selections.")
@@ -106,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         "run_autogluon": include_optionals,
         "autogluon_time_limit": args.autogluon_time_limit,
         "autogluon_presets": args.autogluon_presets,
-        "autogluon_dynamic_stacking": args.autogluon_dynamic_stacking,
+        "autogluon_dynamic_stacking": _parse_autogluon_dynamic_stacking(args.autogluon_dynamic_stacking),
         "autogluon_clean_output": args.autogluon_clean_output,
     }
     if args.device == "gpu" or args.gpu_devices is not None:

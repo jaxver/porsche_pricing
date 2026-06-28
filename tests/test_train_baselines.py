@@ -492,7 +492,7 @@ def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_fra
         time_limit=600,
         artifact_dir=None,
         presets="best_quality",
-        dynamic_stacking="auto",
+        dynamic_stacking=None,
         clean_output=False,
     ):
         captured["train_df"] = train_df.copy()
@@ -530,12 +530,50 @@ def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_fra
     assert captured["target"] == "price_in_eur"
     assert captured["time_limit"] == 33
     assert captured["presets"] == "best_quality"
-    assert captured["dynamic_stacking"] == "auto"
+    assert captured["dynamic_stacking"] is None
     assert captured["clean_output"] is False
     assert set(captured["train_df"].columns) == set(gold_df.columns)
     assert set(captured["test_df"].columns) == set(gold_df.columns)
     assert "price_in_eur" in captured["train_df"].columns
     assert "price_in_eur" in captured["test_df"].columns
+
+
+def test_train_baseline_models_forwards_explicit_autogluon_dynamic_stacking_bool(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured = {}
+
+    def fake_autogluon(
+        train_df,
+        test_df,
+        target,
+        output_dir,
+        time_limit=600,
+        artifact_dir=None,
+        presets="best_quality",
+        dynamic_stacking=None,
+        clean_output=False,
+    ):
+        captured["dynamic_stacking"] = dynamic_stacking
+        return (
+            object(),
+            pd.Series([222.0] * len(test_df), index=test_df.index),
+            pd.DataFrame({"model": ["fake"], "score": [0.5]}),
+            {
+                "model_name": "autogluon",
+                "runtime_seconds": 0.0,
+                "time_limit_seconds": time_limit,
+                "presets": presets,
+                "dynamic_stacking": dynamic_stacking,
+            },
+        )
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
+
+    train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=True, autogluon_dynamic_stacking=True)
+
+    assert captured["dynamic_stacking"] is True
 
 
 def test_prepare_tabpfn_features_ignores_test_only_categories():

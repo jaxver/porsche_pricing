@@ -100,12 +100,12 @@ def test_run_autogluon_regression_passes_presets_and_dynamic_stacking_when_reque
         ".",
         time_limit=15,
         presets="medium_quality",
-        dynamic_stacking="true",
+        dynamic_stacking=True,
     )
 
     assert captured["fit_kwargs"] == {"time_limit": 15, "presets": "medium_quality", "dynamic_stacking": True}
     assert metadata["presets"] == "medium_quality"
-    assert metadata["dynamic_stacking"] == "true"
+    assert metadata["dynamic_stacking"] is True
 
 
 def test_run_autogluon_regression_omits_dynamic_stacking_when_auto(monkeypatch):
@@ -151,7 +151,58 @@ def test_run_autogluon_regression_omits_dynamic_stacking_when_auto(monkeypatch):
 
     assert captured["fit_kwargs"] == {"time_limit": 15, "presets": "high_quality"}
     assert metadata["presets"] == "high_quality"
-    assert metadata["dynamic_stacking"] == "auto"
+    assert metadata["dynamic_stacking"] is None
+
+
+def test_run_autogluon_regression_rejects_clean_output_for_custom_artifact_dir(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets):
+            raise AssertionError("fit should not run when clean_output is unsafe")
+
+        def predict(self, features):
+            raise AssertionError("predict should not run")
+
+        def leaderboard(self, data, silent):
+            raise AssertionError("leaderboard should not run")
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_path = Path(tmpdir)
+        output_dir = temp_path / "results"
+        custom_artifact_dir = temp_path / "custom-artifact-dir"
+        custom_artifact_dir.mkdir(parents=True)
+        stale_file = custom_artifact_dir / "stale.txt"
+        stale_file.write_text("old data", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="dedicated AutoGluon"):
+            run_autogluon_regression(
+                train_df,
+                test_df,
+                "price_in_eur",
+                output_dir,
+                time_limit=15,
+                artifact_dir=custom_artifact_dir,
+                clean_output=True,
+            )
+
+        assert stale_file.exists()
 
 
 def test_run_autogluon_regression_cleans_existing_artifact_dir_when_requested(monkeypatch):
