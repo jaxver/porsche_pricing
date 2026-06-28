@@ -27,6 +27,10 @@ def run_tabpfn_regression(
     model_name: str = "tabpfn_default",
 ) -> tuple[object, object, dict]:
     start = time.perf_counter()
+    if model_path not in (None, "default") and not model_path.endswith(".ckpt"):
+        raise ValueError(
+            f"Unsupported TabPFN model_path '{model_path}'. Valid direct values are None, 'default', or a string ending in .ckpt."
+        )
     try:
         from tabpfn import TabPFNRegressor
     except ImportError as exc:

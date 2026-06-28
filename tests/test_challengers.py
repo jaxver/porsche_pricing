@@ -105,6 +105,29 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
     assert len(model.predict_calls) == 1
 
 
+def test_run_tabpfn_regression_rejects_invalid_direct_model_path_before_instantiation(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_regression
+
+    instantiated = {"value": False}
+
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None):
+            instantiated["value"] = True
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(ValueError, match=r"\.ckpt"):
+        run_tabpfn_regression(X_train, y_train, X_test, model_path="mystery")
+
+    assert instantiated["value"] is False
+
+
 def test_run_tabpfn_regression_preserves_safe_label_for_windows_paths(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_regression
 
