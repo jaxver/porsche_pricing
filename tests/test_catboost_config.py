@@ -122,7 +122,7 @@ def test_train_baseline_models_skips_catboost_when_unavailable(tmp_path, monkeyp
     result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=True)
 
     assert result.skipped_models["catboost"] == "catboost is not installed"
-    assert set(result.metrics) == {"median", "ridge"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet"}
     assert not (tmp_path / "artifacts" / "catboost.cbm").exists()
 
 
@@ -140,7 +140,7 @@ def test_train_baseline_models_includes_catboost_when_enabled(tmp_path, monkeypa
             self.saved_path = Path(path)
             self.saved_path.write_text("fake catboost artifact\n", encoding="utf-8")
 
-    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42):
+    def fake_fit_catboost_regressor(X_train, y_train, selected, random_state=42, params=None):
         return FakeCatBoostModel()
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
