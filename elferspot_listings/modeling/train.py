@@ -489,7 +489,8 @@ def train_baseline_models(
                     metrics[model_name] = model_metrics
                     prediction_frames.append(model_predictions)
 
-    if _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon):
+    should_run_autogluon = _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon)
+    if should_run_autogluon:
         autogluon_train_df = X_train.copy()
         autogluon_train_df["price_in_eur"] = y_train.to_numpy(dtype=float)
         autogluon_test_df = X_test.copy()
@@ -607,7 +608,7 @@ def train_baseline_models(
         random_state=random_state,
         train_catboost=train_catboost,
         run_tabpfn=tabpfn_ran,
-        run_autogluon=run_autogluon,
+        run_autogluon=should_run_autogluon,
         autogluon_time_limit=autogluon_time_limit,
         metrics=metrics,
         skipped_models=skipped_models,

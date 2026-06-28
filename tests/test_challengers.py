@@ -461,6 +461,57 @@ def test_run_tabpfn_client_regression_uses_fake_module_and_thinking_kwargs(monke
     assert "timeout=12" in metadata["notes"]
 
 
+def test_run_tabpfn_client_regression_converts_auth_and_api_failures_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_client_regression
+
+    def fake_init():
+        raise RuntimeError("401 Unauthorized: missing Prior Labs access token for tabpfn-client API access")
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            raise AssertionError("constructor should not run after init failure")
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = fake_init
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(OptionalDependencyNotInstalledError, match=r"tabpfn-client|Prior Labs|access token|API access") as excinfo:
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+    assert "TABPFN_TOKEN" not in str(excinfo.value)
+
+
+def test_run_tabpfn_client_regression_propagates_unrelated_training_errors(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            pass
+
+        def fit(self, X_train, y_train):
+            raise ValueError("bad data")
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = lambda: None
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(ValueError, match="bad data"):
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+
 def test_run_tabpfn_client_regression_raises_helpful_error_when_dependency_is_missing():
     if importlib.util.find_spec("tabpfn_client") is not None:
         pytest.skip("tabpfn_client is installed in this environment")

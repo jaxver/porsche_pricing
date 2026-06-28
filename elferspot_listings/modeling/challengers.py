@@ -15,6 +15,10 @@ _TABPFN_BROWSER_AUTH_GUIDANCE = (
     "set `TABPFN_TOKEN` in the environment before rerunning, and avoid browser auth from proxied or "
     "non-interactive Windows runs."
 )
+_TABPFN_CLIENT_ACCESS_GUIDANCE = (
+    "tabpfn-client API authentication/access failed. Set or access your Prior Labs access token before rerunning, "
+    "and retry after resolving any tabpfn-client quota, network, or service availability issue."
+)
 
 
 class OptionalDependencyNotInstalledError(ImportError, RuntimeError):
@@ -72,6 +76,50 @@ def _is_tabpfn_browser_auth_failure(exc: BaseException) -> bool:
         or ("tabpfn" in message and "signin" in message)
         or "select.select([sys.stdin]" in message
     )
+
+
+def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    auth_markers = (
+        "unauthorized",
+        "forbidden",
+        "authentication",
+        "auth",
+        "login",
+        "signin",
+        "sign in",
+        "prior labs",
+        "access token",
+        "token",
+        "license",
+    )
+    access_markers = (
+        "api access",
+        "api",
+        "quota",
+        "rate limit",
+        "too many requests",
+        "service unavailable",
+        "unavailable",
+        "connection",
+        "network",
+        "timeout",
+        "dns",
+        "socket",
+        "ssl",
+        "certificate",
+        "proxy",
+        "fetch",
+        "client service",
+        "connect",
+        "502",
+        "503",
+        "504",
+        "429",
+        "401",
+        "403",
+    )
+    return any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
 
 
 def run_tabpfn_regression(
@@ -151,9 +199,17 @@ def run_tabpfn_client_regression(
 
     tabpfn_init = getattr(tabpfn_client, "init", None)
     if callable(tabpfn_init):
-        tabpfn_init()
+        try:
+            tabpfn_init()
+        except Exception as exc:
+            if _is_tabpfn_client_access_failure(exc):
+                raise _optional_dependency_error("tabpfn-client", exc, _TABPFN_CLIENT_ACCESS_GUIDANCE) from exc
+            raise
 
-    TabPFNRegressor = tabpfn_client.TabPFNRegressor
+    try:
+        TabPFNRegressor = tabpfn_client.TabPFNRegressor
+    except AttributeError as exc:
+        raise _optional_dependency_error("tabpfn-client", exc, _TABPFN_CLIENT_ACCESS_GUIDANCE) from exc
 
     model_kwargs: dict[str, object] = {
         "random_state": random_state,
@@ -164,9 +220,14 @@ def run_tabpfn_client_regression(
     if thinking_timeout_s is not None:
         model_kwargs["thinking_timeout_s"] = thinking_timeout_s
 
-    model = TabPFNRegressor(**model_kwargs)
-    model.fit(X_train, y_train)
-    predictions = model.predict(X_test)
+    try:
+        model = TabPFNRegressor(**model_kwargs)
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+    except Exception as exc:
+        if _is_tabpfn_client_access_failure(exc):
+            raise _optional_dependency_error("tabpfn-client", exc, _TABPFN_CLIENT_ACCESS_GUIDANCE) from exc
+        raise
 
     model_name = "tabpfn_client_thinking" if thinking_mode else "tabpfn_client"
     notes = ["backend=client"]

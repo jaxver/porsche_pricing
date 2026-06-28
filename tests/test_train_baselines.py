@@ -238,6 +238,48 @@ def test_train_baseline_models_logs_run_to_sqlite(tmp_path, monkeypatch):
     assert (tmp_path / "predictions.csv").exists()
 
 
+def test_train_baseline_models_logs_explicit_autogluon_run_flag(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    captured: dict[str, object] = {}
+
+    def fake_insert_run(
+        db_path,
+        *,
+        random_state,
+        train_catboost,
+        run_tabpfn,
+        run_autogluon,
+        autogluon_tl,
+        output_dir,
+        duration_sec,
+        git_commit=None,
+    ):
+        captured["run_autogluon"] = run_autogluon
+        captured["run_tabpfn"] = run_tabpfn
+        captured["random_state"] = random_state
+        return 1
+
+    monkeypatch.setattr(config, "BENCHMARK_DB", tmp_path / "benchmark_runs.db")
+    monkeypatch.setattr(benchmark_db, "insert_run", fake_insert_run)
+    monkeypatch.setattr(benchmark_db, "insert_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(benchmark_db, "insert_skipped", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda train_df, test_df, target, output_dir, **_kwargs: (
+            object(),
+            pd.Series([222.0] * len(test_df), index=test_df.index),
+            pd.DataFrame({"model": ["fake"], "score": [0.5]}),
+            {"model_name": "autogluon", "runtime_seconds": 0.0, "time_limit_seconds": 600, "presets": "best_quality", "dynamic_stacking": None},
+        ),
+    )
+
+    train_baseline_models(gold_df, tmp_path, random_state=42, models=["autogluon"])
+
+    assert captured["run_autogluon"] is True
+    assert captured["run_tabpfn"] is False
+
+
 def test_train_baseline_models_ignores_benchmark_db_failures(tmp_path, monkeypatch):
     db_path = tmp_path / "benchmark_runs.db"
 
@@ -326,6 +368,37 @@ def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_
 
     assert "autogluon" not in result.metrics
     assert result.skipped_models.get("autogluon") == "Install AutoGluon with `python -m pip install -r requirements-advanced.txt`."
+
+
+def test_train_baseline_models_records_missing_tabpfn_client_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def fake_tabpfn_client(*_args, **_kwargs):
+        raise OptionalDependencyNotInstalledError(
+            "tabpfn-client",
+            "tabpfn-client API authentication/access failed. Set or access your Prior Labs access token and retry.",
+        )
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_client_regression", fake_tabpfn_client)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run in this test")),
+    )
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=42,
+        run_tabpfn=True,
+        tabpfn_backend="client",
+        tabpfn_thinking=True,
+    )
+
+    assert "tabpfn_client_thinking" not in result.metrics
+    assert result.skipped_models.get("tabpfn_client_thinking") == (
+        "tabpfn-client API authentication/access failed. Set or access your Prior Labs access token and retry."
+    )
 
 
 def test_train_baseline_models_records_missing_xgboost_skip_and_continues(tmp_path, monkeypatch):
