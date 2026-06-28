@@ -35,7 +35,7 @@ def test_run_tabpfn_regression_raises_helpful_error_when_dependency_is_missing()
     y_train = pd.Series([10.0, 20.0])
     X_test = pd.DataFrame({"feature": [3.0]})
 
-    with pytest.raises(RuntimeError, match=r"requirements-advanced\.txt"):
+    with pytest.raises(RuntimeError, match=r"\.\[advanced\]"):
         run_tabpfn_regression(X_train, y_train, X_test)
 
 
@@ -53,7 +53,7 @@ def test_run_autogluon_regression_raises_helpful_error_when_dependency_is_missin
     train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
     test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
 
-    with pytest.raises(RuntimeError, match=r"requirements-advanced\.txt"):
+    with pytest.raises(RuntimeError, match=r"\.\[advanced\]"):
         run_autogluon_regression(train_df, test_df, "price_in_eur", ".")
 
 
@@ -594,7 +594,7 @@ def test_run_tabpfn_client_regression_raises_helpful_error_when_dependency_is_mi
     y_train = pd.Series([10.0, 20.0])
     X_test = pd.DataFrame({"feature": [3.0]})
 
-    with pytest.raises(RuntimeError, match=r"requirements-advanced\.txt"):
+    with pytest.raises(RuntimeError, match=r"\.\[advanced\]"):
         run_tabpfn_client_regression(X_train, y_train, X_test)
 
 

@@ -8,8 +8,8 @@ from pathlib import Path
 import pandas as pd
 
 
-_INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
-_TABPFN_CLIENT_INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
+_INSTALL_GUIDANCE = 'python -m pip install -e ".[advanced]"'
+_TABPFN_CLIENT_INSTALL_GUIDANCE = 'python -m pip install -e ".[advanced]"'
 _TABPFN_BROWSER_AUTH_GUIDANCE = (
     "TabPFN browser/license authentication failed. Accept the Prior Labs license in a browser manually, "
     "set `TABPFN_TOKEN` in the environment before rerunning, and avoid browser auth from proxied or "

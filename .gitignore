@@ -14,3 +14,9 @@ best.txt
 **/*.pyc
 **/*.pyo
 **/*.pyd
+.opencode
+docs
+.venv
+
+*egg-info
+autogluon

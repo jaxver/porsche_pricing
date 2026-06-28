@@ -9,7 +9,7 @@ The main project flow is Bronze -> Silver -> Gold, followed by curated notebooks
 Use the default install for the standard portfolio path:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
 Then run the notebook sequence below.
@@ -46,7 +46,7 @@ Default benchmark runs should write into `results/benchmarks/<run_id>/`, includi
 Prefer the CLI entry point for benchmark runs. Install the optional dependencies first when you need TabPFN, AutoGluon, or Perpetual:
 
 ```powershell
-python -m pip install -r requirements-advanced.txt
+python -m pip install -e ".[advanced]"
 ```
 
 Use `python -m elferspot_listings.modeling.cli` for benchmark runs. Examples:

@@ -367,7 +367,7 @@ def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_
     result = train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=True)
 
     assert "autogluon" not in result.metrics
-    assert result.skipped_models.get("autogluon") == "Install AutoGluon with `python -m pip install -r requirements-advanced.txt`."
+    assert result.skipped_models.get("autogluon") == 'Install AutoGluon with `python -m pip install -e ".[advanced]"`.'
 
 
 def test_train_baseline_models_records_missing_tabpfn_client_skip_and_continues(tmp_path, monkeypatch):
