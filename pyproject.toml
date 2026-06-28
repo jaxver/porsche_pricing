@@ -57,3 +57,7 @@ py-modules = ["config"]
 
 [tool.setuptools.packages.find]
 include = ["elferspot_listings*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
