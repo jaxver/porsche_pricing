@@ -118,9 +118,15 @@ def run_tabpfn_client_regression(
 ) -> tuple[object, object, dict]:
     start = time.perf_counter()
     try:
-        from tabpfn_client import TabPFNRegressor
+        import tabpfn_client
     except ImportError as exc:
         raise _optional_dependency_error("tabpfn-client", exc, f"Install tabpfn-client with `{_TABPFN_CLIENT_INSTALL_GUIDANCE}`.") from exc
+
+    tabpfn_init = getattr(tabpfn_client, "init", None)
+    if callable(tabpfn_init):
+        tabpfn_init()
+
+    TabPFNRegressor = tabpfn_client.TabPFNRegressor
 
     model_kwargs: dict[str, object] = {
         "random_state": random_state,

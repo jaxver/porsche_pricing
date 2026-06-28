@@ -417,6 +417,27 @@ def test_train_baseline_models_routes_tabpfn_client_backend_and_thinking_mode(tm
     assert not captured["X_test"].isna().any().any()
 
 
+def test_train_baseline_models_ignores_tabpfn_client_checkpoint_when_tabpfn_is_not_selected(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_client_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("client tabpfn should not run")))
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=11,
+        models=["ridge"],
+        tabpfn_backend="client",
+        tabpfn_model_paths=["default"],
+    )
+
+    assert set(result.metrics) == {"ridge"}
+    assert "tabpfn" not in result.metrics
+    assert "tabpfn_client" not in result.metrics
+
+
 def test_train_baseline_models_appends_explicit_tabpfn_checkpoint_variants(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 

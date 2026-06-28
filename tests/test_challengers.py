@@ -109,6 +109,7 @@ def test_run_tabpfn_client_regression_uses_fake_module_and_thinking_kwargs(monke
     from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
 
     captured = {}
+    init_calls = []
 
     class FakeTabPFNRegressor:
         def __init__(self, **kwargs):
@@ -124,8 +125,12 @@ def test_run_tabpfn_client_regression_uses_fake_module_and_thinking_kwargs(monke
             self.predict_calls.append(X_test.copy())
             return pd.Series([456.0], index=X_test.index)
 
+    def fake_init(*args, **kwargs):
+        init_calls.append((args, kwargs))
+
     fake_client = types.ModuleType("tabpfn_client")
     fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = fake_init
     monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
 
     X_train = pd.DataFrame({"feature": [1.0, 2.0]})
@@ -144,6 +149,7 @@ def test_run_tabpfn_client_regression_uses_fake_module_and_thinking_kwargs(monke
     )
 
     assert isinstance(model, FakeTabPFNRegressor)
+    assert init_calls == [((), {})]
     assert captured["kwargs"] == {
         "random_state": 17,
         "thinking_mode": True,

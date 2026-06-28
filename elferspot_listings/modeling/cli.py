@@ -70,10 +70,11 @@ def main(argv: list[str] | None = None) -> int:
     models = args.model or ["all"]
     model_set = set(models)
     include_optionals = args.include_optionals and "all" in model_set
+    tabpfn_requested = "tabpfn" in model_set or ("all" in model_set and (include_optionals or args.tabpfn_checkpoint is not None))
 
-    if args.tabpfn_thinking and args.tabpfn_backend != "client":
+    if tabpfn_requested and args.tabpfn_thinking and args.tabpfn_backend != "client":
         parser.error("--tabpfn-thinking requires --tabpfn-backend client.")
-    if args.tabpfn_backend == "client" and args.tabpfn_checkpoint is not None:
+    if tabpfn_requested and args.tabpfn_backend == "client" and args.tabpfn_checkpoint is not None:
         parser.error("--tabpfn-checkpoint is local-backend only; remove it when using --tabpfn-backend client.")
 
     gold_df = pd.read_excel(args.input)

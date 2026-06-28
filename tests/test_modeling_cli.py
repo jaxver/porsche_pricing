@@ -252,3 +252,28 @@ def test_cli_rejects_tabpfn_checkpoint_with_client_backend(monkeypatch, tmp_path
         assert exc.code == 2
     else:
         raise AssertionError("cli.main should reject checkpoints with client backend")
+
+
+def test_cli_allows_ridge_with_client_backend_checkpoint_without_selecting_tabpfn(monkeypatch, capsys, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(["--model", "ridge", "--tabpfn-backend", "client", "--tabpfn-checkpoint", "default"])
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"]["models"] == ["ridge"]
+    assert captured["kwargs"]["run_tabpfn"] is False
+    assert captured["kwargs"]["tabpfn_model_paths"] == ["default"]

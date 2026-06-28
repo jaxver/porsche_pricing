@@ -346,9 +346,15 @@ def train_baseline_models(
     if _should_run_model(requested_models, "elasticnet", legacy_enabled=True) and tune_elasticnet:
         elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
 
-    if tabpfn_backend == "client" and tabpfn_model_paths is not None:
+    should_run_tabpfn = _should_run_model(
+        requested_models,
+        "tabpfn",
+        legacy_enabled=run_tabpfn or tabpfn_model_paths is not None,
+    )
+
+    if should_run_tabpfn and tabpfn_backend == "client" and tabpfn_model_paths is not None:
         raise ValueError("TabPFN checkpoints are local-backend only. Remove --tabpfn-checkpoint when using --tabpfn-backend client.")
-    if tabpfn_backend == "local" and tabpfn_thinking:
+    if should_run_tabpfn and tabpfn_backend == "local" and tabpfn_thinking:
         raise ValueError("TabPFN thinking mode requires the client backend.")
 
     if _should_run_model(requested_models, "median", legacy_enabled=True):
@@ -419,11 +425,6 @@ def train_baseline_models(
             prediction_frames.append(model_predictions)
             baseline_artifact_models["perpetual"] = perpetual_model
 
-    should_run_tabpfn = _should_run_model(
-        requested_models,
-        "tabpfn",
-        legacy_enabled=run_tabpfn or tabpfn_model_paths is not None,
-    )
     tabpfn_ran = False
     if should_run_tabpfn and tabpfn_backend == "client":
         model_name = "tabpfn_client_thinking" if tabpfn_thinking else "tabpfn_client"
@@ -447,7 +448,7 @@ def train_baseline_models(
             metrics[model_name] = model_metrics
             prediction_frames.append(model_predictions)
     else:
-        tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
+        tabpfn_requests = tabpfn_model_paths if should_run_tabpfn and tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
         if tabpfn_requests:
             tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
             missing_tabpfn_message: str | None = None
