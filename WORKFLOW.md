@@ -51,6 +51,12 @@ python -m pip install -r requirements-advanced.txt
 
 Use the advanced notebook only when you need TabPFN or AutoGluon comparisons. TabPFN may download checkpoints on first use, and AutoGluon can generate large local benchmark artifacts.
 
+To run all package benchmarks, including tuned ElasticNet, tuned CatBoost, XGBoost, TabPFN, and AutoGluon:
+
+```powershell
+python -c "from pathlib import Path; import pandas as pd; from config import LISTINGS_GOLD, RESULTS_DIR; from elferspot_listings.modeling.train import train_baseline_models; df = pd.read_excel(LISTINGS_GOLD); result = train_baseline_models(df, RESULTS_DIR / 'benchmarks' / 'all_models', train_catboost=True, tune_catboost=True, tune_elasticnet=True, tuning_trials=25, run_xgboost=True, run_tabpfn=True, run_autogluon=True, autogluon_time_limit=600); print(result.metrics); print('output_dir=', result.output_dir); print('skipped=', result.skipped_models)"
+```
+
 ## Dashboard Handoff
 
 The Streamlit app should read benchmark outputs when they exist and stay usable when they do not:
