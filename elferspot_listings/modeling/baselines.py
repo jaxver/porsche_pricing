@@ -143,6 +143,34 @@ def build_xgboost_pipeline(
     )
 
 
+def build_perpetual_pipeline(selected: SelectedColumns, random_state: int = 42) -> TransformedTargetRegressor:
+    try:
+        from perpetual import PerpetualRegressor
+    except ModuleNotFoundError as exc:
+        raise ImportError("perpetual is not installed") from exc
+
+    model_kwargs = {
+        "objective": "SquaredLoss",
+        "budget": 0.5,
+    }
+    try:
+        regressor = PerpetualRegressor(**model_kwargs, random_state=random_state)
+    except TypeError:
+        regressor = PerpetualRegressor(**model_kwargs)
+
+    model = Pipeline(
+        steps=[
+            ("features", _build_feature_transformer(selected)),
+            ("perpetual", regressor),
+        ]
+    )
+    return TransformedTargetRegressor(
+        regressor=model,
+        func=_positive_log_target,
+        inverse_func=_exp_target,
+    )
+
+
 def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
     from skrub import TableVectorizer
 

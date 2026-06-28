@@ -2,3 +2,4 @@
 tabpfn>=2.0.0
 autogluon.tabular>=1.2.0
 xgboost>=2.0.0
+perpetual>=0.4.0

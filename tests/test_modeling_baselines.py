@@ -3,10 +3,12 @@ import types
 
 import pytest
 import pandas as pd
+import numpy as np
 
 from elferspot_listings.modeling.baselines import (
     MedianRegressor,
     build_elasticnet_pipeline,
+    build_perpetual_pipeline,
     build_ridge_pipeline,
     build_skrub_ridge_pipeline,
 )
@@ -192,3 +194,59 @@ def test_xgboost_pipeline_uses_cuda_device_when_requested(monkeypatch):
 
     assert captured["params"]["tree_method"] == "hist"
     assert captured["params"]["device"] == "cuda"
+
+
+def test_perpetual_pipeline_fits_mixed_dataframe_and_falls_back_when_random_state_is_unsupported(monkeypatch):
+    captured = {}
+
+    class FakePerpetualRegressor:
+        def __init__(self, objective, budget):
+            captured["params"] = {"objective": objective, "budget": budget}
+
+        def fit(self, X, y):
+            captured["fit_rows"] = len(X)
+            return self
+
+        def predict(self, X):
+            return np.full(len(X), 123456.0)
+
+    module = types.ModuleType("perpetual")
+    module.PerpetualRegressor = FakePerpetualRegressor
+    monkeypatch.setitem(sys.modules, "perpetual", module)
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km", "Year of construction"),
+        categorical=("model_category",),
+    )
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000, 25000, None, 40000],
+            "Year of construction": [1995, 2000, 1988, None],
+            "model_category": ["911", "Cayenne", None, "Boxster"],
+        }
+    )
+    y = [120000, 95000, 180000, 145000]
+
+    model = build_perpetual_pipeline(selected, random_state=17)
+    model.fit(X, y)
+    predictions = model.predict(X)
+
+    assert captured["params"] == {"objective": "SquaredLoss", "budget": 0.5}
+    assert captured["fit_rows"] == len(X)
+    assert len(predictions) == len(X)
+    assert (predictions > 0).all()
+
+
+def test_perpetual_pipeline_raises_when_dependency_is_missing(monkeypatch):
+    monkeypatch.delitem(sys.modules, "perpetual", raising=False)
+    monkeypatch.setitem(sys.modules, "perpetual", None)
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+    )
+
+    with pytest.raises(ImportError, match="perpetual is not installed"):
+        build_perpetual_pipeline(selected)

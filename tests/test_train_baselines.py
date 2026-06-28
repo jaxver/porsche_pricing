@@ -68,6 +68,35 @@ def test_train_baseline_models_with_xgboost_only_runs_xgboost_without_boolean_fl
     assert set(result.predictions["model_name"]) == {"xgboost"}
 
 
+def test_train_baseline_models_with_perpetual_only_runs_perpetual(tmp_path, monkeypatch):
+    monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("skrub_ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("xgboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_perpetual_pipeline", lambda _selected, random_state=42: DummyRegressor(strategy="mean"))
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["perpetual"])
+
+    assert set(result.metrics) == {"perpetual"}
+    assert set(result.predictions["model_name"]) == {"perpetual"}
+
+
+def test_train_baseline_models_records_missing_perpetual_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_perpetual_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("perpetual is not installed")))
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_perpetual=True)
+
+    assert "perpetual" not in result.metrics
+    assert result.skipped_models.get("perpetual") == "perpetual is not installed"
+
+
 def test_train_baseline_models_rejects_invalid_model_name(tmp_path):
     with pytest.raises(ValueError, match="Unsupported model names"):
         train_baseline_models(_gold_frame(), tmp_path, models=["bogus"])

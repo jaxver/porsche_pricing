@@ -10,7 +10,7 @@ import pandas as pd
 from .train import train_baseline_models
 
 
-MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "xgboost", "catboost", "tabpfn", "autogluon", "all"]
+MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "xgboost", "perpetual", "catboost", "tabpfn", "autogluon", "all"]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         "tune_catboost": args.tune and ("catboost" in model_set or include_optionals),
         "tuning_trials": args.tuning_trials,
         "run_xgboost": include_optionals,
+        "run_perpetual": include_optionals,
         "run_tabpfn": include_optionals,
         "tabpfn_model_paths": args.tabpfn_checkpoint,
         "run_autogluon": include_optionals,

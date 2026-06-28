@@ -43,7 +43,7 @@ Default benchmark runs should write into `results/benchmarks/<run_id>/`, includi
 
 ## Advanced Benchmark Path
 
-Prefer the CLI entry point for benchmark runs. Install the optional dependencies first when you need TabPFN or AutoGluon:
+Prefer the CLI entry point for benchmark runs. Install the optional dependencies first when you need TabPFN, AutoGluon, or Perpetual:
 
 ```powershell
 python -m pip install -r requirements-advanced.txt
@@ -53,12 +53,13 @@ Use `python -m elferspot_listings.modeling.cli` for benchmark runs. Examples:
 
 ```powershell
 python -m elferspot_listings.modeling.cli --model ridge
+python -m elferspot_listings.modeling.cli --model perpetual
 python -m elferspot_listings.modeling.cli --model catboost --tune
 python -m elferspot_listings.modeling.cli --model tabpfn --tabpfn-checkpoint default --tabpfn-checkpoint mediumdata --tabpfn-checkpoint ood
 python -m elferspot_listings.modeling.cli --model all --include-optionals --tune
 ```
 
-TabPFN may download checkpoints on first use, and AutoGluon can generate large local benchmark artifacts.
+TabPFN may download checkpoints on first use, AutoGluon can generate large local benchmark artifacts, and Perpetual uses the same optional install path.
 
 ## Dashboard Handoff
 

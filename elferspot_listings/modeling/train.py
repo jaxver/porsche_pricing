@@ -17,7 +17,14 @@ from elferspot_listings.evaluation.metrics import regression_metrics
 from elferspot_listings.evaluation.reports import write_benchmark_report
 
 from . import benchmark_db
-from .baselines import MedianRegressor, build_elasticnet_pipeline, build_ridge_pipeline, build_skrub_ridge_pipeline, build_xgboost_pipeline
+from .baselines import (
+    MedianRegressor,
+    build_elasticnet_pipeline,
+    build_perpetual_pipeline,
+    build_ridge_pipeline,
+    build_skrub_ridge_pipeline,
+    build_xgboost_pipeline,
+)
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
 from .features import build_feature_frame
@@ -32,6 +39,7 @@ SUPPORTED_MODEL_NAMES = {
     "elasticnet",
     "skrub_ridge",
     "xgboost",
+    "perpetual",
     "catboost",
     "tabpfn",
     "autogluon",
@@ -213,7 +221,7 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
 
 
 def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
-    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge"):
+    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge", "perpetual"):
         if model_name in saved_models:
             continue
         artifact_path = artifacts_dir / f"{model_name}.skops"
@@ -297,6 +305,7 @@ def train_baseline_models(
     tune_catboost: bool = False,
     tuning_trials: int = 25,
     run_xgboost: bool = False,
+    run_perpetual: bool = False,
     run_tabpfn: bool = False,
     tabpfn_model_paths: list[str | None] | None = None,
     run_autogluon: bool = False,
@@ -382,6 +391,18 @@ def train_baseline_models(
             metrics["xgboost"] = model_metrics
             prediction_frames.append(model_predictions)
             baseline_artifact_models["xgboost"] = xgboost_model
+
+    if _should_run_model(requested_models, "perpetual", legacy_enabled=run_perpetual):
+        try:
+            perpetual_model = build_perpetual_pipeline(selected, random_state=random_state)
+        except ImportError:
+            skipped_models["perpetual"] = "perpetual is not installed"
+        else:
+            model_predictions, model_metrics = _score_model(perpetual_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="perpetual")
+            metrics["perpetual"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["perpetual"] = perpetual_model
 
     should_run_tabpfn = _should_run_model(
         requested_models,
