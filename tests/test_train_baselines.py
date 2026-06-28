@@ -97,6 +97,35 @@ def test_train_baseline_models_records_missing_perpetual_skip_and_continues(tmp_
     assert result.skipped_models.get("perpetual") == "perpetual is not installed"
 
 
+def test_train_baseline_models_with_only_missing_perpetual_writes_empty_outputs(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.build_perpetual_pipeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("perpetual is not installed")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, models=["perpetual"])
+
+    assert result.metrics == {}
+    assert result.skipped_models == {"perpetual": "perpetual is not installed"}
+    assert list(result.predictions.columns) == [
+        "row_index",
+        "model_name",
+        "actual_price_eur",
+        "predicted_price_eur",
+        "residual_eur",
+    ]
+    assert result.predictions.empty
+    assert (tmp_path / "predictions.csv").exists()
+    assert (tmp_path / "metrics.json").exists()
+    assert (tmp_path / "MODEL_CARD.md").exists()
+    assert (tmp_path / "skipped_models.json").exists()
+
+    predictions_csv = (tmp_path / "predictions.csv").read_text(encoding="utf-8").splitlines()
+    assert predictions_csv == ["row_index,model_name,actual_price_eur,predicted_price_eur,residual_eur"]
+
+
 def test_train_baseline_models_rejects_invalid_model_name(tmp_path):
     with pytest.raises(ValueError, match="Unsupported model names"):
         train_baseline_models(_gold_frame(), tmp_path, models=["bogus"])

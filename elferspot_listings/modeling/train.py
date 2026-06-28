@@ -529,7 +529,18 @@ def train_baseline_models(
         },
     )
 
-    predictions = pd.concat(prediction_frames, ignore_index=True)
+    if prediction_frames:
+        predictions = pd.concat(prediction_frames, ignore_index=True)
+    else:
+        predictions = pd.DataFrame(
+            columns=[
+                "row_index",
+                "model_name",
+                "actual_price_eur",
+                "predicted_price_eur",
+                "residual_eur",
+            ]
+        )
     predictions = predictions[["row_index", "model_name", "actual_price_eur", "predicted_price_eur", "residual_eur"]]
     predictions.to_csv(output_path / "predictions.csv", index=False)
 
