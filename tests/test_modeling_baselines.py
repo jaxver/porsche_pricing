@@ -4,6 +4,8 @@ import types
 import pytest
 import pandas as pd
 import numpy as np
+from sklearn.utils import Tags
+from sklearn.utils._tags import TargetTags
 
 from elferspot_listings.modeling.baselines import (
     MedianRegressor,
@@ -13,6 +15,10 @@ from elferspot_listings.modeling.baselines import (
     build_skrub_ridge_pipeline,
 )
 from elferspot_listings.modeling.features import SelectedColumns
+
+
+def _perpetual_sklearn_tags():
+    return Tags(estimator_type="regressor", target_tags=TargetTags(required=False))
 
 
 def test_median_regressor_predicts_global_median():
@@ -202,13 +208,21 @@ def test_perpetual_pipeline_fits_mixed_dataframe_and_falls_back_when_random_stat
     class FakePerpetualRegressor:
         def __init__(self, objective, budget):
             captured["params"] = {"objective": objective, "budget": budget}
+            self._is_fitted = False
 
         def fit(self, X, y):
             captured["fit_rows"] = len(X)
+            self._is_fitted = True
             return self
 
         def predict(self, X):
             return np.full(len(X), 123456.0)
+
+        def __sklearn_tags__(self):
+            return _perpetual_sklearn_tags()
+
+        def __sklearn_is_fitted__(self):
+            return self._is_fitted
 
     module = types.ModuleType("perpetual")
     module.PerpetualRegressor = FakePerpetualRegressor
@@ -246,13 +260,21 @@ def test_perpetual_pipeline_retries_without_random_state_on_value_error(monkeypa
             if random_state is not None:
                 raise ValueError("Unknown keyword arguments: dict_keys(['random_state'])")
             captured["params"] = {"objective": objective, "budget": budget}
+            self._is_fitted = False
 
         def fit(self, X, y):
             captured["fit_rows"] = len(X)
+            self._is_fitted = True
             return self
 
         def predict(self, X):
             return np.full(len(X), 123456.0)
+
+        def __sklearn_tags__(self):
+            return _perpetual_sklearn_tags()
+
+        def __sklearn_is_fitted__(self):
+            return self._is_fitted
 
     module = types.ModuleType("perpetual")
     module.PerpetualRegressor = FakePerpetualRegressor
