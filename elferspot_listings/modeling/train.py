@@ -16,7 +16,7 @@ from elferspot_listings.evaluation.metrics import regression_metrics
 from elferspot_listings.evaluation.reports import write_benchmark_report
 
 from . import benchmark_db
-from .baselines import MedianRegressor, build_elasticnet_pipeline, build_ridge_pipeline, build_skrub_ridge_pipeline
+from .baselines import MedianRegressor, build_elasticnet_pipeline, build_ridge_pipeline, build_skrub_ridge_pipeline, build_xgboost_pipeline
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
 from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
 from .features import build_feature_frame
@@ -174,7 +174,7 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
 
 
 def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
-    for model_name in ("ridge", "elasticnet", "skrub_ridge"):
+    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge"):
         if model_name in saved_models:
             continue
         artifact_path = artifacts_dir / f"{model_name}.skops"
@@ -238,6 +238,7 @@ def train_baseline_models(
     tune_elasticnet: bool = False,
     tune_catboost: bool = False,
     tuning_trials: int = 25,
+    run_xgboost: bool = False,
     run_tabpfn: bool = False,
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
@@ -285,6 +286,18 @@ def train_baseline_models(
         metrics["skrub_ridge"] = model_metrics
         prediction_frames.append(model_predictions)
         baseline_artifact_models["skrub_ridge"] = skrub_model
+
+    if run_xgboost:
+        try:
+            xgboost_model = build_xgboost_pipeline(selected, random_state=random_state)
+        except ImportError:
+            skipped_models["xgboost"] = "xgboost is not installed"
+        else:
+            model_predictions, model_metrics = _score_model(xgboost_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="xgboost")
+            metrics["xgboost"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["xgboost"] = xgboost_model
 
     if run_tabpfn:
         tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)

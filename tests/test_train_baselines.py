@@ -193,6 +193,33 @@ def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_
     assert result.skipped_models.get("autogluon") == "Install AutoGluon with `python -m pip install -r requirements-advanced.txt`."
 
 
+def test_train_baseline_models_records_missing_xgboost_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def raise_import_error(_selected, random_state=42):
+        raise ImportError("xgboost is not installed")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", raise_import_error)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_xgboost=True)
+
+    assert "xgboost" not in result.metrics
+    assert result.skipped_models.get("xgboost") == "xgboost is not installed"
+
+
+def test_train_baseline_models_appends_xgboost_predictions_when_enabled(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda _selected, random_state=42: MedianRegressor())
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_xgboost=True)
+
+    assert "xgboost" in result.metrics
+    assert "xgboost" in set(result.predictions["model_name"])
+
+
 def test_train_baseline_models_appends_tabpfn_predictions_with_encoded_features(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 
@@ -326,6 +353,7 @@ def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_una
     artifacts_dir.mkdir(parents=True)
     (artifacts_dir / "ridge.skops").write_text("stale ridge", encoding="utf-8")
     (artifacts_dir / "elasticnet.skops").write_text("stale elasticnet", encoding="utf-8")
+    (artifacts_dir / "xgboost.skops").write_text("stale xgboost", encoding="utf-8")
     (artifacts_dir / "skrub_ridge.skops").write_text("stale skrub", encoding="utf-8")
 
     def raise_skops_missing(*_args, **_kwargs):
@@ -338,6 +366,7 @@ def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_una
 
     assert not (artifacts_dir / "ridge.skops").exists()
     assert not (artifacts_dir / "elasticnet.skops").exists()
+    assert not (artifacts_dir / "xgboost.skops").exists()
     assert not (artifacts_dir / "skrub_ridge.skops").exists()
     assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
     assert result.skipped_models.get("elasticnet_artifact") == "skops is not installed"

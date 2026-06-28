@@ -104,6 +104,40 @@ def build_elasticnet_pipeline(
     )
 
 
+def build_xgboost_pipeline(selected: SelectedColumns, random_state: int = 42) -> TransformedTargetRegressor:
+    try:
+        from xgboost import XGBRegressor
+    except ModuleNotFoundError as exc:
+        raise ImportError("xgboost is not installed") from exc
+
+    model = Pipeline(
+        steps=[
+            ("features", _build_feature_transformer(selected)),
+            (
+                "xgboost",
+                XGBRegressor(
+                    objective="reg:squarederror",
+                    n_estimators=700,
+                    max_depth=4,
+                    learning_rate=0.05,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    reg_alpha=0.0,
+                    reg_lambda=1.0,
+                    random_state=random_state,
+                    tree_method="hist",
+                    n_jobs=-1,
+                ),
+            ),
+        ]
+    )
+    return TransformedTargetRegressor(
+        regressor=model,
+        func=_positive_log_target,
+        inverse_func=_exp_target,
+    )
+
+
 def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
     from skrub import TableVectorizer
 
