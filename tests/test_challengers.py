@@ -61,8 +61,9 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
     from elferspot_listings.modeling.challengers import run_tabpfn_regression
 
     class FakeTabPFNRegressor:
-        def __init__(self, random_state=None):
+        def __init__(self, random_state=None, model_path=None):
             self.random_state = random_state
+            self.model_path = model_path
             self.fit_calls = []
             self.predict_calls = []
 
@@ -82,12 +83,21 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
     y_train = pd.Series([10.0, 20.0])
     X_test = pd.DataFrame({"feature": [3.0]})
 
-    model, predictions, metadata = run_tabpfn_regression(X_train, y_train, X_test, random_state=17)
+    model, predictions, metadata = run_tabpfn_regression(
+        X_train,
+        y_train,
+        X_test,
+        random_state=17,
+        model_path="some.ckpt",
+        model_name="tabpfn_custom",
+    )
 
     assert isinstance(model, FakeTabPFNRegressor)
     assert model.random_state == 17
+    assert model.model_path == "some.ckpt"
     assert list(predictions) == [321.0]
-    assert metadata["model_name"] == "tabpfn"
+    assert metadata["model_name"] == "tabpfn_custom"
+    assert metadata["model_path"] == "some.ckpt"
     assert metadata["runtime_seconds"] >= 0
     assert "checkpoint" in metadata["notes"].lower()
     assert len(model.fit_calls) == 1

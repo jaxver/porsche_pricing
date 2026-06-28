@@ -149,9 +149,9 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
     assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge"}
-    assert "tabpfn" not in result.metrics
+    assert "tabpfn_default" not in result.metrics
     assert "autogluon" not in result.metrics
-    assert "tabpfn" not in set(result.predictions["model_name"])
+    assert "tabpfn_default" not in set(result.predictions["model_name"])
     assert "autogluon" not in set(result.predictions["model_name"])
 
 
@@ -170,8 +170,8 @@ def test_train_baseline_models_records_missing_tabpfn_skip_and_continues(tmp_pat
 
     result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True)
 
-    assert "tabpfn" not in result.metrics
-    assert result.skipped_models.get("tabpfn") == "Install TabPFN with `python -m pip install -r requirements-advanced.txt`."
+    assert "tabpfn_default" not in result.metrics
+    assert result.skipped_models.get("tabpfn_default") == "Install TabPFN with `python -m pip install -r requirements-advanced.txt`."
 
 
 def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_path, monkeypatch):
@@ -225,26 +225,64 @@ def test_train_baseline_models_appends_tabpfn_predictions_with_encoded_features(
 
     captured = {}
 
-    def fake_tabpfn(X_train, y_train, X_test, random_state=42):
+    def fake_tabpfn(X_train, y_train, X_test, random_state=42, model_path=None, model_name="tabpfn_default"):
         captured["X_train"] = X_train.copy()
         captured["X_test"] = X_test.copy()
         captured["random_state"] = random_state
-        return object(), pd.Series([111.0] * len(X_test), index=X_test.index), {"model_name": "tabpfn", "runtime_seconds": 0.0, "notes": "fake checkpoint note"}
+        captured["model_path"] = model_path
+        captured["model_name"] = model_name
+        return object(), pd.Series([111.0] * len(X_test), index=X_test.index), {"model_name": model_name, "model_path": model_path, "runtime_seconds": 0.0, "notes": "fake checkpoint note"}
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
     monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
 
     result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True)
 
-    assert "tabpfn" in result.metrics
-    assert "tabpfn" in set(result.predictions["model_name"])
-    assert result.predictions[result.predictions["model_name"] == "tabpfn"]["predicted_price_eur"].tolist() == [111.0] * len(
-        result.predictions[result.predictions["model_name"] == "tabpfn"]
+    assert "tabpfn_default" in result.metrics
+    assert "tabpfn_default" in set(result.predictions["model_name"])
+    assert result.predictions[result.predictions["model_name"] == "tabpfn_default"]["predicted_price_eur"].tolist() == [111.0] * len(
+        result.predictions[result.predictions["model_name"] == "tabpfn_default"]
     )
     assert captured["random_state"] == 42
+    assert captured["model_path"] is None
+    assert captured["model_name"] == "tabpfn_default"
     assert not captured["X_train"].isna().any().any()
     assert not captured["X_test"].isna().any().any()
     assert any(column.endswith("_nan") for column in captured["X_train"].columns)
+
+
+def test_train_baseline_models_appends_explicit_tabpfn_checkpoint_variants(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured: list[tuple[str, str | None]] = []
+
+    def fake_tabpfn(X_train, y_train, X_test, random_state=42, model_path=None, model_name="tabpfn_default"):
+        captured.append((model_name, model_path))
+        return object(), pd.Series([111.0] * len(X_test), index=X_test.index), {
+            "model_name": model_name,
+            "model_path": model_path,
+            "runtime_seconds": 0.0,
+            "notes": "fake checkpoint note",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=42,
+        run_tabpfn=True,
+        tabpfn_model_paths=["default", "mediumdata", "ood"],
+    )
+
+    assert captured == [
+        ("tabpfn_default", None),
+        ("tabpfn_mediumdata", "tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt"),
+        ("tabpfn_ood", "tabpfn-v3-regressor-v3_20260506_ood.ckpt"),
+    ]
+    assert {"tabpfn_default", "tabpfn_mediumdata", "tabpfn_ood"}.issubset(result.metrics)
+    assert {"tabpfn_default", "tabpfn_mediumdata", "tabpfn_ood"}.issubset(set(result.predictions["model_name"]))
 
 
 def test_train_baseline_models_appends_autogluon_predictions_and_uses_target_frame(tmp_path, monkeypatch):

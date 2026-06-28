@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -148,6 +149,19 @@ def _prepare_tabpfn_features(X_train: pd.DataFrame, X_test: pd.DataFrame) -> tup
     return train_encoded, test_encoded
 
 
+def _normalize_tabpfn_checkpoint_alias(model_path: str | None) -> tuple[str, str | None]:
+    if model_path in (None, "default"):
+        return "tabpfn_default", None
+    if model_path == "mediumdata":
+        return "tabpfn_mediumdata", "tabpfn-v3-regressor-v3_20260417_mediumdata.ckpt"
+    if model_path == "ood":
+        return "tabpfn_ood", "tabpfn-v3-regressor-v3_20260506_ood.ckpt"
+    if model_path.endswith(".ckpt"):
+        safe_stem = re.sub(r"[^0-9A-Za-z]+", "_", Path(model_path).stem).strip("_") or "custom"
+        return f"tabpfn_{safe_stem.lower()}", model_path
+    return f"tabpfn_{re.sub(r'[^0-9A-Za-z]+', '_', model_path).strip('_').lower() or 'custom'}", model_path
+
+
 def _cleanup_autogluon_output(output_path: Path, autogluon_trained: bool) -> None:
     if autogluon_trained:
         return
@@ -240,6 +254,7 @@ def train_baseline_models(
     tuning_trials: int = 25,
     run_xgboost: bool = False,
     run_tabpfn: bool = False,
+    tabpfn_model_paths: list[str | None] | None = None,
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
 ) -> BenchmarkResult:
@@ -299,16 +314,31 @@ def train_baseline_models(
             prediction_frames.append(model_predictions)
             baseline_artifact_models["xgboost"] = xgboost_model
 
-    if run_tabpfn:
+    tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if run_tabpfn else [])
+    if tabpfn_requests:
         tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
-        try:
-            _, tabpfn_predictions, _ = run_tabpfn_regression(tabpfn_X_train, y_train, tabpfn_X_test, random_state=random_state)
-        except OptionalDependencyNotInstalledError as exc:
-            skipped_models["tabpfn"] = str(exc)
-        else:
-            model_predictions, model_metrics = _score_predictions("tabpfn", y_test, tabpfn_predictions)
-            metrics["tabpfn"] = model_metrics
-            prediction_frames.append(model_predictions)
+        missing_tabpfn_message: str | None = None
+        for requested_model_path in tabpfn_requests:
+            model_name, normalized_model_path = _normalize_tabpfn_checkpoint_alias(requested_model_path)
+            if missing_tabpfn_message is not None:
+                skipped_models[model_name] = missing_tabpfn_message
+                continue
+            try:
+                _, tabpfn_predictions, _ = run_tabpfn_regression(
+                    tabpfn_X_train,
+                    y_train,
+                    tabpfn_X_test,
+                    random_state=random_state,
+                    model_path=normalized_model_path,
+                    model_name=model_name,
+                )
+            except OptionalDependencyNotInstalledError as exc:
+                missing_tabpfn_message = str(exc)
+                skipped_models[model_name] = missing_tabpfn_message
+            else:
+                model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
+                metrics[model_name] = model_metrics
+                prediction_frames.append(model_predictions)
 
     if run_autogluon:
         autogluon_train_df = X_train.copy()
@@ -399,7 +429,7 @@ def train_baseline_models(
         output_path=output_path,
         random_state=random_state,
         train_catboost=train_catboost,
-        run_tabpfn=run_tabpfn,
+        run_tabpfn=bool(tabpfn_requests),
         run_autogluon=run_autogluon,
         autogluon_time_limit=autogluon_time_limit,
         metrics=metrics,

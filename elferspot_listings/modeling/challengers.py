@@ -18,20 +18,35 @@ def _optional_dependency_error(package_name: str, exc: ImportError) -> OptionalD
     return OptionalDependencyNotInstalledError(package_name)
 
 
-def run_tabpfn_regression(X_train, y_train, X_test, random_state: int = 42) -> tuple[object, object, dict]:
+def run_tabpfn_regression(
+    X_train,
+    y_train,
+    X_test,
+    random_state: int = 42,
+    model_path: str | None = None,
+    model_name: str = "tabpfn_default",
+) -> tuple[object, object, dict]:
     start = time.perf_counter()
     try:
         from tabpfn import TabPFNRegressor
     except ImportError as exc:
         raise _optional_dependency_error("TabPFN", exc) from exc
 
-    model = TabPFNRegressor(random_state=random_state)
+    model_kwargs: dict[str, object] = {"random_state": random_state}
+    if model_path not in (None, "default"):
+        model_kwargs["model_path"] = model_path
+
+    model = TabPFNRegressor(**model_kwargs)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
+    notes = "Default TabPFN checkpoint."
+    if model_path not in (None, "default"):
+        notes = f"Using TabPFN checkpoint {model_path}."
     metadata = {
-        "model_name": "tabpfn",
+        "model_name": model_name,
+        "model_path": model_path,
         "runtime_seconds": time.perf_counter() - start,
-        "notes": "First run may download TabPFN checkpoints.",
+        "notes": f"{notes} First run may download TabPFN checkpoints.",
     }
     return model, predictions, metadata
 
