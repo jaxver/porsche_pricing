@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: nbstripout
+        name: Strip Jupyter notebook outputs/metadata
+        description: >-
+          Strip execution counts, outputs, and kernel metadata from staged
+          .ipynb files so notebooks stay review-only and free of hardcoded
+          paths, browser auth tokens, and Chrome error tracebacks.
+        entry: nbstripout
+        language: system
+        types: [jupyter]
+        files: '\.ipynb$'
