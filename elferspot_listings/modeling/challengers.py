@@ -80,6 +80,13 @@ def _is_tabpfn_browser_auth_failure(exc: BaseException) -> bool:
 
 def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
     message = str(exc).lower()
+    plain_failure_markers = (
+        "authentication required",
+        "missing prior labs access token",
+        "api access denied",
+        "invalid token",
+        "unauthorized",
+    )
     auth_markers = (
         "unauthorized",
         "forbidden",
@@ -119,7 +126,9 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
         "401",
         "403",
     )
-    return any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
+    return any(marker in message for marker in plain_failure_markers) or (
+        any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
+    )
 
 
 def run_tabpfn_regression(

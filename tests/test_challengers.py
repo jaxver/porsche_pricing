@@ -486,6 +486,39 @@ def test_run_tabpfn_client_regression_converts_auth_and_api_failures_to_optional
     assert "TABPFN_TOKEN" not in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "authentication required",
+        "missing Prior Labs access token",
+        "API access denied",
+        "invalid token",
+        "unauthorized",
+    ],
+)
+def test_run_tabpfn_client_regression_converts_plain_auth_and_access_failures_to_optional_dependency_error(monkeypatch, message):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_client_regression
+
+    def fake_init():
+        raise RuntimeError(message)
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            raise AssertionError("constructor should not run after init failure")
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = fake_init
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(OptionalDependencyNotInstalledError, match=r"tabpfn-client|Prior Labs|access token|API access"):
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+
 def test_run_tabpfn_client_regression_propagates_unrelated_training_errors(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
 
