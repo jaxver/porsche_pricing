@@ -43,19 +43,22 @@ Default benchmark runs should write into `results/benchmarks/<run_id>/`, includi
 
 ## Advanced Benchmark Path
 
-For the optional challenger comparison path:
+Prefer the CLI entry point for benchmark runs. Install the optional dependencies first when you need TabPFN or AutoGluon:
 
 ```powershell
 python -m pip install -r requirements-advanced.txt
 ```
 
-Use the advanced notebook only when you need TabPFN or AutoGluon comparisons. TabPFN may download checkpoints on first use, and AutoGluon can generate large local benchmark artifacts.
-
-To run all package benchmarks, including tuned ElasticNet, tuned CatBoost, XGBoost, TabPFN, and AutoGluon:
+Use `python -m elferspot_listings.modeling.cli` for benchmark runs. Examples:
 
 ```powershell
-python -c "from pathlib import Path; import pandas as pd; from config import LISTINGS_GOLD, RESULTS_DIR; from elferspot_listings.modeling.train import train_baseline_models; df = pd.read_excel(LISTINGS_GOLD); result = train_baseline_models(df, RESULTS_DIR / 'benchmarks' / 'all_models', train_catboost=True, tune_catboost=True, tune_elasticnet=True, tuning_trials=25, run_xgboost=True, run_tabpfn=True, run_autogluon=True, autogluon_time_limit=600); print(result.metrics); print('output_dir=', result.output_dir); print('skipped=', result.skipped_models)"
+python -m elferspot_listings.modeling.cli --model ridge
+python -m elferspot_listings.modeling.cli --model catboost --tune
+python -m elferspot_listings.modeling.cli --model tabpfn --tabpfn-checkpoint default --tabpfn-checkpoint mediumdata --tabpfn-checkpoint ood
+python -m elferspot_listings.modeling.cli --model all --include-optionals --tune
 ```
+
+TabPFN may download checkpoints on first use, and AutoGluon can generate large local benchmark artifacts.
 
 ## Dashboard Handoff
 
