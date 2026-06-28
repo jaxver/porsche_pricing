@@ -31,6 +31,32 @@ def _optional_dependency_error(
     return OptionalDependencyNotInstalledError(package_name, message)
 
 
+def _path_is_symlink_or_junction(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    return bool(path.is_symlink() or (callable(is_junction) and is_junction()))
+
+
+def _validate_autogluon_cleanup_target(output_dir_path: Path, output_path: Path) -> None:
+    allowed_cleanup_dir = output_dir_path / "autogluon"
+    try:
+        output_dir_resolved = output_dir_path.resolve(strict=False)
+        output_resolved = output_path.resolve(strict=False)
+        allowed_resolved = allowed_cleanup_dir.resolve(strict=False)
+    except OSError as exc:
+        raise ValueError(
+            "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+        ) from exc
+
+    if _path_is_symlink_or_junction(output_dir_path) or _path_is_symlink_or_junction(output_path):
+        raise ValueError(
+            "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+        )
+    if output_path.name != "autogluon" or output_resolved != allowed_resolved or not output_resolved.is_relative_to(output_dir_resolved):
+        raise ValueError(
+            "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
+        )
+
+
 def _is_tabpfn_browser_auth_failure(exc: BaseException) -> bool:
     if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 10038:
         return True
@@ -174,30 +200,18 @@ def run_autogluon_regression(
     except ImportError as exc:
         raise _optional_dependency_error("AutoGluon", exc) from exc
 
+    if dynamic_stacking is not None and type(dynamic_stacking) is not bool:
+        raise TypeError("dynamic_stacking must be None, True, or False")
+
     output_dir_path = Path(output_dir)
     output_path = Path(artifact_dir) if artifact_dir is not None else output_dir_path / "autogluon"
-    if clean_output and output_path.exists():
-        allowed_cleanup_dir = output_dir_path / "autogluon"
-        if artifact_dir is not None and output_path != allowed_cleanup_dir:
-            try:
-                output_resolved = output_path.resolve(strict=False)
-                allowed_resolved = allowed_cleanup_dir.resolve(strict=False)
-            except OSError as exc:
-                raise ValueError(
-                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
-                ) from exc
-            if output_path.name != "autogluon" or not output_resolved.is_relative_to(output_dir_path.resolve(strict=False)):
-                raise ValueError(
-                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
-                )
-            if output_resolved != allowed_resolved:
-                raise ValueError(
-                    "clean_output is only allowed for a dedicated AutoGluon artifact directory under the current output directory."
-                )
-        if output_path.is_dir():
-            shutil.rmtree(output_path)
-        else:
-            output_path.unlink()
+    if clean_output:
+        _validate_autogluon_cleanup_target(output_dir_path, output_path)
+        if output_path.exists():
+            if output_path.is_dir():
+                shutil.rmtree(output_path)
+            else:
+                output_path.unlink()
     output_path.mkdir(parents=True, exist_ok=True)
 
     fit_kwargs: dict[str, object] = {

@@ -620,6 +620,26 @@ def test_train_baseline_models_cleans_stale_autogluon_output_when_not_running(tm
     assert not stale_dir.exists()
 
 
+def test_train_baseline_models_rejects_unsafe_autogluon_cleanup_path(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    stale_dir = tmp_path / "autogluon"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "leaderboard.csv").write_text("stale", encoding="utf-8")
+
+    def raise_if_fit_runs(*_args, **_kwargs):
+        raise AssertionError("autogluon fit should not run when cleanup path is unsafe")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", raise_if_fit_runs)
+    monkeypatch.setattr(Path, "is_symlink", lambda self: self == stale_dir)
+
+    with pytest.raises(ValueError, match="dedicated AutoGluon"):
+        train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=False)
+
+    assert stale_dir.exists()
+    assert (stale_dir / "leaderboard.csv").exists()
+
+
 
 def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recovers(tmp_path, monkeypatch):
     gold_df = _gold_frame()

@@ -29,6 +29,7 @@ from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_c
 from .challengers import (
     OptionalDependencyNotInstalledError,
     run_autogluon_regression,
+    _validate_autogluon_cleanup_target,
     run_tabpfn_client_regression,
     run_tabpfn_regression,
 )
@@ -200,9 +201,10 @@ def _normalize_tabpfn_checkpoint_alias(model_path: str | None) -> tuple[str, str
     return f"tabpfn_{safe_stem.lower()}", model_path
 
 
-def _cleanup_autogluon_output(output_path: Path, autogluon_trained: bool) -> None:
-    if autogluon_trained:
+def _cleanup_autogluon_output(output_dir_path: Path, output_path: Path, autogluon_trained: bool) -> None:
+    if autogluon_trained or not output_path.exists():
         return
+    _validate_autogluon_cleanup_target(output_dir_path, output_path)
     if output_path.is_dir():
         shutil.rmtree(output_path)
     elif output_path.exists():
@@ -535,7 +537,7 @@ def train_baseline_models(
     if not catboost_trained and catboost_artifact_path.exists():
         catboost_artifact_path.unlink()
 
-    _cleanup_autogluon_output(output_path / "autogluon", "autogluon" in metrics)
+    _cleanup_autogluon_output(output_path, output_path / "autogluon", "autogluon" in metrics)
 
     try:
         for model_name, model in baseline_artifact_models.items():

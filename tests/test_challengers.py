@@ -154,7 +154,7 @@ def test_run_autogluon_regression_omits_dynamic_stacking_when_auto(monkeypatch):
     assert metadata["dynamic_stacking"] is None
 
 
-def test_run_autogluon_regression_rejects_clean_output_for_custom_artifact_dir(monkeypatch):
+def test_run_autogluon_regression_rejects_clean_output_for_missing_custom_artifact_dir(monkeypatch):
     from elferspot_listings.modeling.challengers import run_autogluon_regression
 
     class FakeTabularPredictor:
@@ -187,9 +187,6 @@ def test_run_autogluon_regression_rejects_clean_output_for_custom_artifact_dir(m
         temp_path = Path(tmpdir)
         output_dir = temp_path / "results"
         custom_artifact_dir = temp_path / "custom-artifact-dir"
-        custom_artifact_dir.mkdir(parents=True)
-        stale_file = custom_artifact_dir / "stale.txt"
-        stale_file.write_text("old data", encoding="utf-8")
 
         with pytest.raises(ValueError, match="dedicated AutoGluon"):
             run_autogluon_regression(
@@ -202,7 +199,99 @@ def test_run_autogluon_regression_rejects_clean_output_for_custom_artifact_dir(m
                 clean_output=True,
             )
 
-        assert stale_file.exists()
+        assert not output_dir.exists()
+        assert not custom_artifact_dir.exists()
+
+
+def test_run_autogluon_regression_rejects_invalid_dynamic_stacking_value(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets, dynamic_stacking=None):
+            raise AssertionError("fit should not run when dynamic_stacking is invalid")
+
+        def predict(self, features):
+            raise AssertionError("predict should not run")
+
+        def leaderboard(self, data, silent):
+            raise AssertionError("leaderboard should not run")
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    with pytest.raises((TypeError, ValueError), match="dynamic_stacking"):
+        run_autogluon_regression(
+            train_df,
+            test_df,
+            "price_in_eur",
+            ".",
+            dynamic_stacking="auto",  # type: ignore[arg-type]
+        )
+
+
+def test_run_autogluon_regression_rejects_unsafe_default_cleanup_path(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_autogluon_regression
+
+    class FakeTabularPredictor:
+        def __init__(self, label, path, problem_type):
+            self.label = label
+            self.path = path
+            self.problem_type = problem_type
+
+        def fit(self, train_df, time_limit, presets):
+            raise AssertionError("fit should not run when cleanup path is unsafe")
+
+        def predict(self, features):
+            raise AssertionError("predict should not run")
+
+        def leaderboard(self, data, silent):
+            raise AssertionError("leaderboard should not run")
+
+    fake_autogluon = types.ModuleType("autogluon")
+    fake_autogluon.__path__ = []
+    fake_tabular = types.ModuleType("autogluon.tabular")
+    fake_tabular.TabularPredictor = FakeTabularPredictor
+    fake_autogluon.tabular = fake_tabular
+    monkeypatch.setitem(sys.modules, "autogluon", fake_autogluon)
+    monkeypatch.setitem(sys.modules, "autogluon.tabular", fake_tabular)
+
+    train_df = pd.DataFrame({"feature": [1.0, 2.0], "price_in_eur": [10.0, 20.0]})
+    test_df = pd.DataFrame({"feature": [3.0], "price_in_eur": [30.0]})
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_path = Path(tmpdir)
+        output_dir = temp_path / "results"
+        artifact_dir = output_dir / "autogluon"
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "stale.txt").write_text("old data", encoding="utf-8")
+
+        monkeypatch.setattr(Path, "is_symlink", lambda self: self == artifact_dir)
+
+        with pytest.raises(ValueError, match="dedicated AutoGluon"):
+            run_autogluon_regression(
+                train_df,
+                test_df,
+                "price_in_eur",
+                output_dir,
+                time_limit=15,
+                clean_output=True,
+            )
+
+        assert artifact_dir.exists()
+        assert (artifact_dir / "stale.txt").exists()
 
 
 def test_run_autogluon_regression_cleans_existing_artifact_dir_when_requested(monkeypatch):
