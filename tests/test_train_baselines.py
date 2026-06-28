@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import sys
+import types
 from pathlib import Path
 from sklearn.dummy import DummyRegressor
 
@@ -198,11 +200,22 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
 def test_train_baseline_models_records_missing_tabpfn_skip_and_continues(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 
-    def fake_tabpfn(*_args, **_kwargs):
-        raise OptionalDependencyNotInstalledError("TabPFN")
+    class FakeTabPFNRegressor:
+        def __init__(self, random_state=None, model_path=None):
+            self.random_state = random_state
+            self.model_path = model_path
+
+        def fit(self, X_train, y_train):
+            raise OSError("[WinError 10038] An operation was attempted on something that is not a socket")
+
+        def predict(self, X_test):
+            return pd.Series([111.0] * len(X_test), index=X_test.index)
+
+    fake_tabpfn = types.ModuleType("tabpfn")
+    fake_tabpfn.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn", fake_tabpfn)
 
     monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
-    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
     monkeypatch.setattr(
         "elferspot_listings.modeling.train.run_autogluon_regression",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run in this test")),
@@ -211,7 +224,11 @@ def test_train_baseline_models_records_missing_tabpfn_skip_and_continues(tmp_pat
     result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabpfn=True)
 
     assert "tabpfn_default" not in result.metrics
-    assert result.skipped_models.get("tabpfn_default") == "Install TabPFN with `python -m pip install -r requirements-advanced.txt`."
+    assert result.skipped_models.get("tabpfn_default") == (
+        "TabPFN browser/license authentication failed. Accept the Prior Labs license in a browser manually, "
+        "set `TABPFN_TOKEN` in the environment before rerunning, and avoid browser auth from proxied or "
+        "non-interactive Windows runs."
+    )
 
 
 def test_train_baseline_models_records_missing_autogluon_skip_and_continues(tmp_path, monkeypatch):

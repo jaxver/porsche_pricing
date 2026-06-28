@@ -8,15 +8,42 @@ import pandas as pd
 
 
 _INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
+_TABPFN_BROWSER_AUTH_GUIDANCE = (
+    "TabPFN browser/license authentication failed. Accept the Prior Labs license in a browser manually, "
+    "set `TABPFN_TOKEN` in the environment before rerunning, and avoid browser auth from proxied or "
+    "non-interactive Windows runs."
+)
 
 
 class OptionalDependencyNotInstalledError(ImportError, RuntimeError):
-    def __init__(self, package_name: str):
-        super().__init__(f"Install {package_name} with `{_INSTALL_GUIDANCE}`.")
+    def __init__(self, package_name: str, message: str | None = None):
+        super().__init__(message or f"Install {package_name} with `{_INSTALL_GUIDANCE}`.")
+        self.package_name = package_name
 
 
-def _optional_dependency_error(package_name: str, exc: ImportError) -> OptionalDependencyNotInstalledError:
-    return OptionalDependencyNotInstalledError(package_name)
+def _optional_dependency_error(
+    package_name: str,
+    exc: BaseException,
+    message: str | None = None,
+) -> OptionalDependencyNotInstalledError:
+    return OptionalDependencyNotInstalledError(package_name, message)
+
+
+def _is_tabpfn_browser_auth_failure(exc: BaseException) -> bool:
+    if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 10038:
+        return True
+
+    message = str(exc).lower()
+    return (
+        "winerror 10038" in message
+        or "tabpfn_token" in message
+        or "prior labs" in message
+        or "browser auth" in message
+        or ("tabpfn" in message and "license" in message)
+        or ("tabpfn" in message and "login" in message)
+        or ("tabpfn" in message and "signin" in message)
+        or "select.select([sys.stdin]" in message
+    )
 
 
 def run_tabpfn_regression(
@@ -56,8 +83,13 @@ def run_tabpfn_regression(
         else:
             device_note = "Requested GPU device, but TabPFN constructor did not accept a device parameter."
 
-    model = TabPFNRegressor(**model_kwargs)
-    model.fit(X_train, y_train)
+    try:
+        model = TabPFNRegressor(**model_kwargs)
+        model.fit(X_train, y_train)
+    except Exception as exc:
+        if _is_tabpfn_browser_auth_failure(exc):
+            raise _optional_dependency_error("TabPFN", exc, _TABPFN_BROWSER_AUTH_GUIDANCE) from exc
+        raise
     predictions = model.predict(X_test)
     notes = "Default TabPFN checkpoint."
     if checkpoint_label is not None:
