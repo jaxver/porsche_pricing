@@ -61,6 +61,21 @@ python -m elferspot_listings.modeling.cli --model all --include-optionals --tune
 
 TabPFN may download checkpoints on first use, AutoGluon can generate large local benchmark artifacts, and Perpetual uses the same optional install path.
 
+For local TabPFN runs, PowerShell examples:
+
+```powershell
+$env:TABPFN_TOKEN = "your-token-here"
+setx TABPFN_TOKEN "your-token-here"
+$env:TABPFN_MODEL_CACHE_DIR = "$env:TEMP\tabpfn-cache"
+$env:TABPFN_NO_BROWSER = "1"
+```
+
+For the API-backed client with thinking mode:
+
+```powershell
+python -m elferspot_listings.modeling.cli --model tabpfn --tabpfn-backend client --tabpfn-thinking --tabpfn-thinking-effort high --tabpfn-thinking-metric mae --tabpfn-thinking-timeout 12
+```
+
 ## Dashboard Handoff
 
 The Streamlit app should read benchmark outputs when they exist and stay usable when they do not:

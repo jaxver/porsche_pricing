@@ -366,6 +366,57 @@ def test_train_baseline_models_appends_tabpfn_predictions_with_encoded_features(
     assert any(column.endswith("_nan") for column in captured["X_train"].columns)
 
 
+def test_train_baseline_models_routes_tabpfn_client_backend_and_thinking_mode(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured = {}
+
+    def fake_tabpfn_client(X_train, y_train, X_test, random_state=42, thinking_mode=False, thinking_effort="medium", thinking_metric="rmse", thinking_timeout_s=None):
+        captured["X_train"] = X_train.copy()
+        captured["X_test"] = X_test.copy()
+        captured["kwargs"] = {
+            "random_state": random_state,
+            "thinking_mode": thinking_mode,
+            "thinking_effort": thinking_effort,
+            "thinking_metric": thinking_metric,
+            "thinking_timeout_s": thinking_timeout_s,
+        }
+        return object(), pd.Series([333.0] * len(X_test), index=X_test.index), {
+            "model_name": "tabpfn_client_thinking",
+            "backend": "client",
+            "runtime_seconds": 0.0,
+            "notes": "backend=client effort=high metric=mae timeout=12",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_client_regression", fake_tabpfn_client)
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local tabpfn should not run")))
+
+    result = train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=11,
+        run_tabpfn=True,
+        tabpfn_backend="client",
+        tabpfn_thinking=True,
+        tabpfn_thinking_effort="high",
+        tabpfn_thinking_metric="mae",
+        tabpfn_thinking_timeout=12,
+    )
+
+    assert captured["kwargs"] == {
+        "random_state": 11,
+        "thinking_mode": True,
+        "thinking_effort": "high",
+        "thinking_metric": "mae",
+        "thinking_timeout_s": 12,
+    }
+    assert "tabpfn_client_thinking" in result.metrics
+    assert "tabpfn_client_thinking" in set(result.predictions["model_name"])
+    assert not captured["X_train"].isna().any().any()
+    assert not captured["X_test"].isna().any().any()
+
+
 def test_train_baseline_models_appends_explicit_tabpfn_checkpoint_variants(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 

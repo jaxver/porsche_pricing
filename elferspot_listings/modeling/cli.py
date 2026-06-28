@@ -34,6 +34,31 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="TabPFN checkpoint alias or .ckpt path; repeat to run multiple checkpoints.",
     )
+    parser.add_argument(
+        "--tabpfn-backend",
+        choices=("local", "client"),
+        default="local",
+        help="TabPFN backend to use.",
+    )
+    parser.add_argument("--tabpfn-thinking", action="store_true", help="Enable TabPFN client thinking mode.")
+    parser.add_argument(
+        "--tabpfn-thinking-effort",
+        choices=("medium", "high"),
+        default="medium",
+        help="Thinking effort for the TabPFN client backend.",
+    )
+    parser.add_argument(
+        "--tabpfn-thinking-timeout",
+        type=float,
+        default=None,
+        help="Optional thinking timeout in seconds for the TabPFN client backend.",
+    )
+    parser.add_argument(
+        "--tabpfn-thinking-metric",
+        choices=("rmse", "mae"),
+        default="rmse",
+        help="Thinking metric for the TabPFN client backend.",
+    )
     parser.add_argument("--autogluon-time-limit", type=int, default=600, help="Time limit in seconds for AutoGluon.")
     parser.add_argument("--include-optionals", action="store_true", help="Run optional models when used together with --model all.")
     return parser
@@ -42,11 +67,16 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-
-    gold_df = pd.read_excel(args.input)
     models = args.model or ["all"]
     model_set = set(models)
     include_optionals = args.include_optionals and "all" in model_set
+
+    if args.tabpfn_thinking and args.tabpfn_backend != "client":
+        parser.error("--tabpfn-thinking requires --tabpfn-backend client.")
+    if args.tabpfn_backend == "client" and args.tabpfn_checkpoint is not None:
+        parser.error("--tabpfn-checkpoint is local-backend only; remove it when using --tabpfn-backend client.")
+
+    gold_df = pd.read_excel(args.input)
 
     train_kwargs = {
         "random_state": args.random_state,
@@ -59,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         "run_perpetual": include_optionals,
         "run_tabpfn": include_optionals,
         "tabpfn_model_paths": args.tabpfn_checkpoint,
+        "tabpfn_backend": args.tabpfn_backend,
+        "tabpfn_thinking": args.tabpfn_thinking,
+        "tabpfn_thinking_effort": args.tabpfn_thinking_effort,
+        "tabpfn_thinking_timeout": args.tabpfn_thinking_timeout,
+        "tabpfn_thinking_metric": args.tabpfn_thinking_metric,
         "run_autogluon": include_optionals,
         "autogluon_time_limit": args.autogluon_time_limit,
     }

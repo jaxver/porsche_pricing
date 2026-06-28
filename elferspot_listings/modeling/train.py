@@ -26,7 +26,12 @@ from .baselines import (
     build_xgboost_pipeline,
 )
 from .catboost_model import fit_catboost_regressor, predict_catboost_eur, save_catboost_model
-from .challengers import OptionalDependencyNotInstalledError, run_autogluon_regression, run_tabpfn_regression
+from .challengers import (
+    OptionalDependencyNotInstalledError,
+    run_autogluon_regression,
+    run_tabpfn_client_regression,
+    run_tabpfn_regression,
+)
 from .features import build_feature_frame
 from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model_card
 
@@ -308,6 +313,11 @@ def train_baseline_models(
     run_perpetual: bool = False,
     run_tabpfn: bool = False,
     tabpfn_model_paths: list[str | None] | None = None,
+    tabpfn_backend: str = "local",
+    tabpfn_thinking: bool = False,
+    tabpfn_thinking_effort: str = "medium",
+    tabpfn_thinking_timeout: float | int | None = None,
+    tabpfn_thinking_metric: str = "rmse",
     run_autogluon: bool = False,
     autogluon_time_limit: int = 600,
     models: list[str] | None = None,
@@ -335,6 +345,11 @@ def train_baseline_models(
     elasticnet_params = dict(config.MODEL_CONFIG["elasticnet"])
     if _should_run_model(requested_models, "elasticnet", legacy_enabled=True) and tune_elasticnet:
         elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
+
+    if tabpfn_backend == "client" and tabpfn_model_paths is not None:
+        raise ValueError("TabPFN checkpoints are local-backend only. Remove --tabpfn-checkpoint when using --tabpfn-backend client.")
+    if tabpfn_backend == "local" and tabpfn_thinking:
+        raise ValueError("TabPFN thinking mode requires the client backend.")
 
     if _should_run_model(requested_models, "median", legacy_enabled=True):
         model = MedianRegressor()
@@ -409,32 +424,56 @@ def train_baseline_models(
         "tabpfn",
         legacy_enabled=run_tabpfn or tabpfn_model_paths is not None,
     )
-    tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
-    if tabpfn_requests:
-        tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
-        missing_tabpfn_message: str | None = None
-        for requested_model_path in tabpfn_requests:
-            model_name, normalized_model_path = _normalize_tabpfn_checkpoint_alias(requested_model_path)
-            if missing_tabpfn_message is not None:
-                skipped_models[model_name] = missing_tabpfn_message
-                continue
-            try:
-                _, tabpfn_predictions, _ = run_tabpfn_regression(
-                    tabpfn_X_train,
-                    y_train,
-                    tabpfn_X_test,
-                    random_state=random_state,
-                    model_path=normalized_model_path,
-                    model_name=model_name,
-                    **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
-                )
-            except OptionalDependencyNotInstalledError as exc:
-                missing_tabpfn_message = str(exc)
-                skipped_models[model_name] = missing_tabpfn_message
-            else:
-                model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
-                metrics[model_name] = model_metrics
-                prediction_frames.append(model_predictions)
+    tabpfn_ran = False
+    if should_run_tabpfn and tabpfn_backend == "client":
+        model_name = "tabpfn_client_thinking" if tabpfn_thinking else "tabpfn_client"
+        try:
+            _, tabpfn_predictions, metadata = run_tabpfn_client_regression(
+                X_train,
+                y_train,
+                X_test,
+                random_state=random_state,
+                thinking_mode=tabpfn_thinking,
+                thinking_effort=tabpfn_thinking_effort,
+                thinking_metric=tabpfn_thinking_metric,
+                thinking_timeout_s=tabpfn_thinking_timeout,
+            )
+        except OptionalDependencyNotInstalledError as exc:
+            skipped_models[model_name] = str(exc)
+        else:
+            tabpfn_ran = True
+            model_name = str(metadata.get("model_name", model_name))
+            model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
+            metrics[model_name] = model_metrics
+            prediction_frames.append(model_predictions)
+    else:
+        tabpfn_requests = tabpfn_model_paths if tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
+        if tabpfn_requests:
+            tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
+            missing_tabpfn_message: str | None = None
+            for requested_model_path in tabpfn_requests:
+                model_name, normalized_model_path = _normalize_tabpfn_checkpoint_alias(requested_model_path)
+                if missing_tabpfn_message is not None:
+                    skipped_models[model_name] = missing_tabpfn_message
+                    continue
+                try:
+                    _, tabpfn_predictions, _ = run_tabpfn_regression(
+                        tabpfn_X_train,
+                        y_train,
+                        tabpfn_X_test,
+                        random_state=random_state,
+                        model_path=normalized_model_path,
+                        model_name=model_name,
+                        **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                    )
+                except OptionalDependencyNotInstalledError as exc:
+                    missing_tabpfn_message = str(exc)
+                    skipped_models[model_name] = missing_tabpfn_message
+                else:
+                    tabpfn_ran = True
+                    model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
+                    metrics[model_name] = model_metrics
+                    prediction_frames.append(model_predictions)
 
     if _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon):
         autogluon_train_df = X_train.copy()
@@ -550,7 +589,7 @@ def train_baseline_models(
         output_path=output_path,
         random_state=random_state,
         train_catboost=train_catboost,
-        run_tabpfn=bool(tabpfn_requests),
+        run_tabpfn=tabpfn_ran,
         run_autogluon=run_autogluon,
         autogluon_time_limit=autogluon_time_limit,
         metrics=metrics,

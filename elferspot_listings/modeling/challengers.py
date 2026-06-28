@@ -8,6 +8,7 @@ import pandas as pd
 
 
 _INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
+_TABPFN_CLIENT_INSTALL_GUIDANCE = "python -m pip install -r requirements-advanced.txt"
 _TABPFN_BROWSER_AUTH_GUIDANCE = (
     "TabPFN browser/license authentication failed. Accept the Prior Labs license in a browser manually, "
     "set `TABPFN_TOKEN` in the environment before rerunning, and avoid browser auth from proxied or "
@@ -101,6 +102,50 @@ def run_tabpfn_regression(
         "model_path": checkpoint_label,
         "runtime_seconds": time.perf_counter() - start,
         "notes": f"{notes} First run may download TabPFN checkpoints.",
+    }
+    return model, predictions, metadata
+
+
+def run_tabpfn_client_regression(
+    X_train,
+    y_train,
+    X_test,
+    random_state: int = 42,
+    thinking_mode: bool = False,
+    thinking_effort: str = "medium",
+    thinking_metric: str = "rmse",
+    thinking_timeout_s: float | int | None = None,
+) -> tuple[object, object, dict]:
+    start = time.perf_counter()
+    try:
+        from tabpfn_client import TabPFNRegressor
+    except ImportError as exc:
+        raise _optional_dependency_error("tabpfn-client", exc, f"Install tabpfn-client with `{_TABPFN_CLIENT_INSTALL_GUIDANCE}`.") from exc
+
+    model_kwargs: dict[str, object] = {
+        "random_state": random_state,
+        "thinking_mode": thinking_mode,
+        "thinking_effort": thinking_effort,
+        "thinking_metric": thinking_metric,
+    }
+    if thinking_timeout_s is not None:
+        model_kwargs["thinking_timeout_s"] = thinking_timeout_s
+
+    model = TabPFNRegressor(**model_kwargs)
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+
+    model_name = "tabpfn_client_thinking" if thinking_mode else "tabpfn_client"
+    notes = ["backend=client"]
+    if thinking_mode:
+        notes.append(f"thinking_mode=True effort={thinking_effort} metric={thinking_metric}")
+        if thinking_timeout_s is not None:
+            notes.append(f"timeout={thinking_timeout_s}")
+    metadata = {
+        "model_name": model_name,
+        "backend": "client",
+        "runtime_seconds": time.perf_counter() - start,
+        "notes": " ".join(notes),
     }
     return model, predictions, metadata
 

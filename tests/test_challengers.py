@@ -105,6 +105,75 @@ def test_run_tabpfn_regression_uses_fake_module_and_returns_metadata(monkeypatch
     assert len(model.predict_calls) == 1
 
 
+def test_run_tabpfn_client_regression_uses_fake_module_and_thinking_kwargs(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
+
+    captured = {}
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            self.fit_calls = []
+            self.predict_calls = []
+
+        def fit(self, X_train, y_train):
+            self.fit_calls.append((X_train.copy(), y_train.copy()))
+            return self
+
+        def predict(self, X_test):
+            self.predict_calls.append(X_test.copy())
+            return pd.Series([456.0], index=X_test.index)
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    model, predictions, metadata = run_tabpfn_client_regression(
+        X_train,
+        y_train,
+        X_test,
+        random_state=17,
+        thinking_mode=True,
+        thinking_effort="high",
+        thinking_metric="mae",
+        thinking_timeout_s=12,
+    )
+
+    assert isinstance(model, FakeTabPFNRegressor)
+    assert captured["kwargs"] == {
+        "random_state": 17,
+        "thinking_mode": True,
+        "thinking_effort": "high",
+        "thinking_metric": "mae",
+        "thinking_timeout_s": 12,
+    }
+    assert list(predictions) == [456.0]
+    assert metadata["model_name"] == "tabpfn_client_thinking"
+    assert metadata["backend"] == "client"
+    assert metadata["runtime_seconds"] >= 0
+    assert "effort=high" in metadata["notes"]
+    assert "metric=mae" in metadata["notes"]
+    assert "timeout=12" in metadata["notes"]
+
+
+def test_run_tabpfn_client_regression_raises_helpful_error_when_dependency_is_missing():
+    if importlib.util.find_spec("tabpfn_client") is not None:
+        pytest.skip("tabpfn_client is installed in this environment")
+
+    from elferspot_listings.modeling.challengers import run_tabpfn_client_regression
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(RuntimeError, match=r"requirements-advanced\.txt"):
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+
 def test_run_tabpfn_regression_raises_helpful_error_for_browser_auth_windows_socket_failure(monkeypatch):
     from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_regression
 

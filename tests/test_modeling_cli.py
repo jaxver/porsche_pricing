@@ -64,6 +64,11 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "run_tabpfn": True,
         "run_perpetual": True,
         "tabpfn_model_paths": ["mediumdata", "ood"],
+        "tabpfn_backend": "local",
+        "tabpfn_thinking": False,
+        "tabpfn_thinking_effort": "medium",
+        "tabpfn_thinking_timeout": None,
+        "tabpfn_thinking_metric": "rmse",
         "run_autogluon": True,
         "autogluon_time_limit": 33,
     }
@@ -130,6 +135,11 @@ def test_cli_perpetual_model_only_passes_only_that_model(monkeypatch, capsys, tm
         "run_tabpfn": False,
         "run_perpetual": False,
         "tabpfn_model_paths": None,
+        "tabpfn_backend": "local",
+        "tabpfn_thinking": False,
+        "tabpfn_thinking_effort": "medium",
+        "tabpfn_thinking_timeout": None,
+        "tabpfn_thinking_metric": "rmse",
         "run_autogluon": False,
         "autogluon_time_limit": 600,
     }
@@ -159,3 +169,86 @@ def test_cli_passes_gpu_flags_to_train_baseline_models(monkeypatch, capsys, tmp_
     assert exit_code == 0
     assert captured["kwargs"]["device"] == "gpu"
     assert captured["kwargs"]["gpu_devices"] == "0"
+
+
+def test_cli_passes_tabpfn_client_thinking_kwargs(monkeypatch, capsys, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(
+        [
+            "--model",
+            "tabpfn",
+            "--tabpfn-backend",
+            "client",
+            "--tabpfn-thinking",
+            "--tabpfn-thinking-effort",
+            "high",
+            "--tabpfn-thinking-timeout",
+            "12",
+            "--tabpfn-thinking-metric",
+            "mae",
+        ]
+    )
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"] == {
+        "random_state": 42,
+        "models": ["tabpfn"],
+        "train_catboost": False,
+        "tune_elasticnet": False,
+        "tune_catboost": False,
+        "tuning_trials": 25,
+        "run_xgboost": False,
+        "run_tabpfn": False,
+        "run_perpetual": False,
+        "tabpfn_model_paths": None,
+        "tabpfn_backend": "client",
+        "tabpfn_thinking": True,
+        "tabpfn_thinking_effort": "high",
+        "tabpfn_thinking_timeout": 12,
+        "tabpfn_thinking_metric": "mae",
+        "run_autogluon": False,
+        "autogluon_time_limit": 600,
+    }
+
+
+def test_cli_rejects_tabpfn_thinking_with_local_backend(monkeypatch, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+
+    try:
+        cli.main(["--model", "tabpfn", "--tabpfn-backend", "local", "--tabpfn-thinking"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("cli.main should reject thinking mode with local backend")
+
+
+def test_cli_rejects_tabpfn_checkpoint_with_client_backend(monkeypatch, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+
+    try:
+        cli.main(["--model", "tabpfn", "--tabpfn-backend", "client", "--tabpfn-checkpoint", "default"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("cli.main should reject checkpoints with client backend")
