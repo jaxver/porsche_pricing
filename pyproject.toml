@@ -38,6 +38,11 @@ advanced = [
     "autogluon.tabular>=1.2.0",
     "xgboost>=2.0.0",
     "perpetual>=0.4.0",
+    "lightgbm>=4.0.0",
+    "tabicl>=2.0.0",
+    "torch>=2.5.0",
+    "torchvision>=0.20.0",
+    "torchaudio>=2.5.0",
 ]
 dev = [
     "pytest>=7.2.0",
@@ -61,3 +66,23 @@ include = ["elferspot_listings*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+# Force CUDA-enabled torch on Windows so TabPFN / TabICL / Perpetual / AutoGluon
+# can run on the local RTX card. On other platforms (and for pip-only installs)
+# the standard PyPI wheel is used, so users on macOS / Linux / CPU-only boxes
+# can still install without a CUDA download.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+]
+torchaudio = [
+    { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+]
