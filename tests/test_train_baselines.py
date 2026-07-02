@@ -477,7 +477,7 @@ def test_train_baseline_models_records_missing_tabfm_skip_and_continues(tmp_path
     result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabfm=True)
 
     assert "tabfm" not in result.metrics
-    assert result.skipped_models.get("tabfm") == 'Install TabFM with `python -m pip install -e "[advanced]"`.'
+    assert result.skipped_models.get("tabfm") == 'Install TabFM with `python -m pip install -e ".[advanced]"`.'
 
 
 def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, monkeypatch):

@@ -491,9 +491,9 @@ def train_baseline_models(
                     skipped_models[model_name] = missing_tabpfn_message
                 else:
                     tabpfn_ran = True
-                model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
-                metrics[model_name] = model_metrics
-                prediction_frames.append(model_predictions)
+                    model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
+                    metrics[model_name] = model_metrics
+                    prediction_frames.append(model_predictions)
 
     should_run_tabfm = _should_run_model(requested_models, "tabfm", legacy_enabled=run_tabfm)
     if should_run_tabfm:

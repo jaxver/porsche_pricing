@@ -195,6 +195,7 @@ def test_insert_skipped_is_idempotent(tmp_path):
         random_state=42,
         train_catboost=False,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
