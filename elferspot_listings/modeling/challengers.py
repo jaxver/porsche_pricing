@@ -162,7 +162,7 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
 
 
 def _is_tabfm_load_failure(exc: BaseException) -> bool:
-    message = str(exc).lower()
+    message = str(exc).lower().replace("_", " ")
     return any(
         marker in message
         for marker in (
@@ -174,11 +174,14 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "unauthorized",
             "forbidden",
             "connection timeout",
+            "connection refused",
             "service unavailable",
+            "network error",
             "proxy connection failed",
             "dns lookup failed",
             "network unreachable",
             "ssl certificate",
+            "certificate verify failed",
             "403",
             "429",
             "502",
