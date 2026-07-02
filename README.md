@@ -1,6 +1,6 @@
 # Elferspot Listings - Porsche Price Analytics
 
-An end-to-end Porsche listing price analytics project that demonstrates reproducible data pipelines, feature engineering, tabular ML baselines, CatBoost benchmarking, optional TabPFN/AutoGluon comparisons, model artifacts, and a Streamlit dashboard.
+An end-to-end Porsche listing price analytics project that demonstrates reproducible data pipelines, feature engineering, tabular ML baselines, CatBoost benchmarking, optional TabPFN/TabFM/AutoGluon comparisons, model artifacts, and a Streamlit dashboard.
 
 ## What This Repo Shows
 

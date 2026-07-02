@@ -6,6 +6,7 @@ from pathlib import Path
 
 def test_pyproject_defines_core_and_optional_dependency_groups():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    readme = Path("README.md").read_text(encoding="utf-8")
 
     project = pyproject["project"]
     dependencies = set(project["dependencies"])
@@ -24,3 +25,6 @@ def test_pyproject_defines_core_and_optional_dependency_groups():
 
     assert "pytest>=7.2.0" in optional_dependencies["dev"]
     assert "pytest>=7.2.0" in optional_dependencies["ci"]
+
+    assert "TabPFN, TabFM, and AutoGluon" in readme
+    assert "TabPFN and TabFM may download weights or checkpoints the first time they are used." in readme
