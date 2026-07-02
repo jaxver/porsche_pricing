@@ -109,14 +109,14 @@ def test_run_tabfm_regression_converts_auth_like_load_failures_to_optional_depen
 
     class FakeVersionedCheckpoint:
         def load(self, model_type="regression"):
-            return object()
+            raise RuntimeError("401 Unauthorized: Prior Labs license required")
 
     class FakeTabFMRegressor:
         def __init__(self, model):
             self.model = model
 
         def fit(self, X_train, y_train):
-            raise RuntimeError("401 Unauthorized: Prior Labs license required")
+            return self
 
         def predict(self, X_test):
             return pd.Series([123.0] * len(X_test), index=X_test.index)
@@ -139,14 +139,14 @@ def test_run_tabfm_regression_converts_network_load_failures_to_optional_depende
 
     class FakeVersionedCheckpoint:
         def load(self, model_type="regression"):
-            return object()
+            raise RuntimeError("503 Service Unavailable: connection timeout while fetching weights")
 
     class FakeTabFMRegressor:
         def __init__(self, model):
             self.model = model
 
         def fit(self, X_train, y_train):
-            raise RuntimeError("503 Service Unavailable: connection timeout while fetching weights")
+            return self
 
         def predict(self, X_test):
             return pd.Series([123.0] * len(X_test), index=X_test.index)

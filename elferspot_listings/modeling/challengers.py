@@ -169,16 +169,16 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "authentication",
             "license",
             "access token",
-            "network",
-            "connection",
-            "timeout",
-            "proxy",
-            "certificate",
-            "ssl",
             "browser auth",
             "prior labs",
             "unauthorized",
             "forbidden",
+            "connection timeout",
+            "service unavailable",
+            "proxy connection failed",
+            "dns lookup failed",
+            "network unreachable",
+            "ssl certificate",
             "403",
             "429",
             "502",
@@ -202,13 +202,14 @@ def run_tabfm_regression(
 
     try:
         checkpoint = tabfm_v1_0_0.load(model_type="regression")
-        model = TabFMRegressor(model=checkpoint)
-        model.fit(X_train, y_train)
-        predictions = model.predict(X_test)
     except Exception as exc:
         if _is_tabfm_load_failure(exc):
             raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc
         raise
+
+    model = TabFMRegressor(model=checkpoint)
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
 
     predicted_values = pd.Series(predictions, index=X_test.index, dtype=float)
     prediction_frame = pd.DataFrame({"predicted_price_eur": predicted_values.to_numpy(dtype=float)}, index=X_test.index)
