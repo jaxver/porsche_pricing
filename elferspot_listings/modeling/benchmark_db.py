@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import subprocess
 from pathlib import Path
+from collections import defaultdict
 from typing import Any
 
 import pandas as pd
@@ -29,6 +30,10 @@ BEST_RUN_SUMMARY_COLUMNS = [
     "skipped_count",
     "skipped_models",
 ]
+
+
+def _skipped_model_rows_to_tuple(rows: list[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+    return tuple(rows)
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
@@ -260,15 +265,8 @@ def get_best_run_summary(db_path: str | Path) -> pd.DataFrame:
     ensure_schema(db_path)
     query = """
         WITH skipped_summary AS (
-            SELECT
-                run_id,
-                COUNT(*) AS skipped_count,
-                GROUP_CONCAT(model_name, ', ') AS skipped_models
-            FROM (
-                SELECT run_id, model_name
-                FROM skipped_models
-                ORDER BY model_name
-            )
+            SELECT run_id, COUNT(*) AS skipped_count
+            FROM skipped_models
             GROUP BY run_id
         ), ranked AS (
             SELECT
@@ -290,7 +288,6 @@ def get_best_run_summary(db_path: str | Path) -> pd.DataFrame:
                 r.autogluon_tl,
                 r.git_commit,
                 COALESCE(s.skipped_count, 0) AS skipped_count,
-                COALESCE(s.skipped_models, '') AS skipped_models,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.model_name
                     ORDER BY m.mae_eur ASC, r.created_at DESC, r.id DESC
@@ -317,14 +314,36 @@ def get_best_run_summary(db_path: str | Path) -> pd.DataFrame:
             run_autogluon,
             autogluon_tl,
             git_commit,
-            skipped_count,
-            skipped_models
+            skipped_count
         FROM ranked
         WHERE rn = 1
         ORDER BY mae_eur ASC, model_name ASC
     """
     with _connect(db_path) as conn:
         summary = pd.read_sql_query(query, conn)
-    if summary.empty:
-        return pd.DataFrame(columns=BEST_RUN_SUMMARY_COLUMNS)
+        if summary.empty:
+            return pd.DataFrame(columns=BEST_RUN_SUMMARY_COLUMNS)
+
+        run_ids = tuple(int(run_id) for run_id in summary["run_id"].tolist())
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            skipped_rows = conn.execute(
+                f"""
+                SELECT run_id, model_name, reason
+                FROM skipped_models
+                WHERE run_id IN ({placeholders})
+                ORDER BY run_id, model_name
+                """,
+                run_ids,
+            ).fetchall()
+        else:
+            skipped_rows = []
+
+    skipped_by_run: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    for run_id, model_name, reason in skipped_rows:
+        skipped_by_run[int(run_id)].append((str(model_name), str(reason)))
+
+    summary["skipped_models"] = [
+        _skipped_model_rows_to_tuple(skipped_by_run.get(int(run_id), [])) for run_id in summary["run_id"].tolist()
+    ]
     return summary.reindex(columns=BEST_RUN_SUMMARY_COLUMNS)

@@ -502,7 +502,7 @@ def test_get_best_run_summary_prefers_lower_mae_and_ties_by_recency_then_run_id(
     assert ridge_row["run_id"] == newer_same_mae
     assert ridge_row["output_dir"] == "newer"
     assert ridge_row["skipped_count"] == 2
-    assert ridge_row["skipped_models"] == "autogluon, tabpfn"
+    assert ridge_row["skipped_models"] == (("autogluon", "disabled"), ("tabpfn", "missing dependency"))
     catboost_row = summary.loc[summary["model_name"] == "catboost"].iloc[0]
     assert catboost_row["run_id"] == newer_same_mae
     assert catboost_row["git_commit"] == "sha-new"
