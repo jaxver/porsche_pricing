@@ -20,6 +20,7 @@ def test_pyproject_defines_core_and_optional_dependency_groups():
     assert "autogluon.tabular>=1.2.0" in optional_dependencies["advanced"]
     assert "xgboost>=2.0.0" in optional_dependencies["advanced"]
     assert "perpetual>=0.4.0" in optional_dependencies["advanced"]
+    assert "tabfm[pytorch]>=1.0.0" in optional_dependencies["advanced"]
 
     assert "pytest>=7.2.0" in optional_dependencies["dev"]
     assert "pytest>=7.2.0" in optional_dependencies["ci"]

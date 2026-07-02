@@ -7,7 +7,7 @@ An end-to-end Porsche listing price analytics project that demonstrates reproduc
 - Bronze -> Silver -> Gold data flow for repeatable preparation
 - Curated notebooks that tell the analysis story in order
 - Default tabular baselines plus CatBoost benchmarking
-- Optional advanced challenger runs for TabPFN and AutoGluon
+- Optional advanced challenger runs for TabPFN, TabFM, and AutoGluon
 - Saved model artifacts and benchmark outputs for later review
 - A Streamlit dashboard for browsing listings and results
 
@@ -38,13 +38,13 @@ streamlit run app/streamlit_app.py
 
 ## Advanced Benchmark Setup
 
-For the optional TabPFN and AutoGluon comparison path:
+For the optional TabPFN, TabFM, and AutoGluon comparison path:
 
 ```powershell
 python -m pip install -e ".[advanced]"
 ```
 
-TabPFN may download checkpoints the first time it is used. AutoGluon can create large local benchmark artifacts, so keep the advanced extras separate from the default install and only run them when you need the full challenger comparison.
+TabPFN and TabFM may download weights or checkpoints the first time they are used. AutoGluon can create large local benchmark artifacts, so keep the advanced extras separate from the default install and only run them when you need the full challenger comparison.
 
 ## Notebook Workflow
 

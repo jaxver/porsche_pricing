@@ -36,6 +36,7 @@ advanced = [
     "tabpfn>=2.0.0",
     "tabpfn-client>=0.1.0",
     "autogluon.tabular>=1.2.0",
+    "tabfm[pytorch]>=1.0.0",
     "xgboost>=2.0.0",
     "perpetual>=0.4.0",
     "lightgbm>=4.0.0",
