@@ -320,6 +320,7 @@ def get_best_run_summary(db_path: str | Path) -> pd.DataFrame:
         ORDER BY mae_eur ASC, model_name ASC
     """
     with _connect(db_path) as conn:
+        conn.execute("BEGIN")
         summary = pd.read_sql_query(query, conn)
         if summary.empty:
             return pd.DataFrame(columns=BEST_RUN_SUMMARY_COLUMNS)
