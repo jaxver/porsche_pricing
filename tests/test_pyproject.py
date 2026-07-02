@@ -27,4 +27,5 @@ def test_pyproject_defines_core_and_optional_dependency_groups():
     assert "pytest>=7.2.0" in optional_dependencies["ci"]
 
     assert "TabPFN, TabFM, and AutoGluon" in readme
+    assert 'python -m pip install -e ".[advanced]"' in readme
     assert "TabPFN and TabFM may download weights or checkpoints the first time they are used." in readme
