@@ -71,6 +71,7 @@ def test_insert_run_returns_id(tmp_path, monkeypatch):
         random_state=42,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=True,
         autogluon_tl=600,
         output_dir=tmp_path / "out",
@@ -90,6 +91,7 @@ def test_insert_run_stores_all_columns(tmp_path, monkeypatch):
         random_state=7,
         train_catboost=False,
         run_tabpfn=True,
+        run_tabfm=True,
         run_autogluon=True,
         autogluon_tl=1200,
         output_dir=tmp_path / "results" / "run-1",
@@ -99,7 +101,7 @@ def test_insert_run_stores_all_columns(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT random_state, train_catboost, run_tabpfn, run_autogluon,
+            SELECT random_state, train_catboost, run_tabpfn, run_tabfm, run_autogluon,
                    autogluon_tl, output_dir, duration_sec, git_commit
             FROM runs
             WHERE id = ?
@@ -107,7 +109,7 @@ def test_insert_run_stores_all_columns(tmp_path, monkeypatch):
             (run_id,),
         ).fetchone()
 
-    assert row == (7, 0, 1, 1, 1200, str(tmp_path / "results" / "run-1"), 99.25, "abc123")
+    assert row == (7, 0, 1, 1, 1, 1200, str(tmp_path / "results" / "run-1"), 99.25, "abc123")
 
 
 def test_insert_metrics_stores_all_models(tmp_path):
@@ -117,6 +119,7 @@ def test_insert_metrics_stores_all_models(tmp_path):
         random_state=42,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
@@ -144,6 +147,7 @@ def test_insert_metrics_is_idempotent(tmp_path):
         random_state=42,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
@@ -168,6 +172,7 @@ def test_insert_skipped_stores_reasons(tmp_path):
         random_state=42,
         train_catboost=False,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
@@ -220,6 +225,7 @@ def test_get_latest_run_returns_newest_run(tmp_path):
         random_state=1,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir="first",
@@ -231,6 +237,7 @@ def test_get_latest_run_returns_newest_run(tmp_path):
         random_state=2,
         train_catboost=False,
         run_tabpfn=True,
+        run_tabfm=True,
         run_autogluon=True,
         autogluon_tl=900,
         output_dir="second",
@@ -256,6 +263,7 @@ def test_get_latest_run_includes_metrics(tmp_path):
         random_state=42,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
@@ -280,6 +288,7 @@ def test_get_run_history_returns_dataframe(tmp_path):
         random_state=11,
         train_catboost=True,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,
@@ -296,6 +305,7 @@ def test_get_run_history_returns_dataframe(tmp_path):
         "random_state",
         "train_catboost",
         "run_tabpfn",
+        "run_tabfm",
         "run_autogluon",
         "autogluon_tl",
         "duration_sec",
@@ -317,6 +327,7 @@ def test_get_run_history_returns_empty_on_empty_db(tmp_path):
         "random_state",
         "train_catboost",
         "run_tabpfn",
+        "run_tabfm",
         "run_autogluon",
         "autogluon_tl",
         "duration_sec",
@@ -333,6 +344,7 @@ def test_insert_run_captures_git_commit_when_available(tmp_path, monkeypatch):
         random_state=42,
         train_catboost=False,
         run_tabpfn=False,
+        run_tabfm=False,
         run_autogluon=False,
         autogluon_tl=600,
         output_dir=None,

@@ -19,6 +19,10 @@ _TABPFN_CLIENT_ACCESS_GUIDANCE = (
     "tabpfn-client API authentication/access failed. Set or access your Prior Labs access token before rerunning, "
     "and retry after resolving any tabpfn-client quota, network, or service availability issue."
 )
+_TABFM_LOAD_GUIDANCE = (
+    "TabFM load/auth/download failed. Re-run after allowing network access, resolving any auth or license prompt, "
+    "and remember the first run may download the published weights."
+)
 _TABPFN_CUDA_UNAVAILABLE_GUIDANCE = (
     "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
     "or install a CUDA-enabled PyTorch build."
@@ -155,6 +159,74 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
     return any(marker in message for marker in plain_failure_markers) or (
         any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
     ) or any(marker in message for marker in service_failure_markers)
+
+
+def _is_tabfm_load_failure(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "auth",
+            "authentication",
+            "license",
+            "login",
+            "signin",
+            "sign in",
+            "token",
+            "download",
+            "weights",
+            "checkpoint",
+            "model card",
+            "not found",
+            "missing",
+            "network",
+            "connection",
+            "timeout",
+            "proxy",
+            "certificate",
+            "ssl",
+            "403",
+            "404",
+            "429",
+            "500",
+            "502",
+            "503",
+            "504",
+        )
+    )
+
+
+def run_tabfm_regression(
+    X_train,
+    y_train,
+    X_test,
+    random_state: int = 42,
+) -> tuple[object, pd.DataFrame, dict]:
+    start = time.perf_counter()
+    try:
+        from tabfm import TabFMRegressor, tabfm_v1_0_0_pytorch as tabfm_v1_0_0
+    except ImportError as exc:
+        raise _optional_dependency_error("TabFM", exc) from exc
+
+    try:
+        checkpoint = tabfm_v1_0_0.load(model_type="regression")
+        model = TabFMRegressor(model=checkpoint)
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+    except Exception as exc:
+        if _is_tabfm_load_failure(exc):
+            raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc
+        raise
+
+    predicted_values = pd.Series(predictions, index=X_test.index, dtype=float)
+    prediction_frame = pd.DataFrame({"predicted_price_eur": predicted_values.to_numpy(dtype=float)}, index=X_test.index)
+    metadata = {
+        "model_name": "tabfm",
+        "backend": "pytorch",
+        "runtime_seconds": time.perf_counter() - start,
+        "notes": "Using the published TabFM PyTorch checkpoint. First run may download weights.",
+    }
+    return model, prediction_frame, metadata
 
 
 def run_tabpfn_regression(

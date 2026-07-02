@@ -15,6 +15,7 @@ def test_challengers_module_imports_without_advanced_dependencies():
     module = importlib.import_module("elferspot_listings.modeling.challengers")
 
     assert hasattr(module, "run_tabpfn_regression")
+    assert hasattr(module, "run_tabfm_regression")
     assert hasattr(module, "run_autogluon_regression")
 
 
@@ -37,6 +38,70 @@ def test_run_tabpfn_regression_raises_helpful_error_when_dependency_is_missing()
 
     with pytest.raises(RuntimeError, match=r"\.\[advanced\]"):
         run_tabpfn_regression(X_train, y_train, X_test)
+
+
+def test_run_tabfm_regression_uses_published_loader_pattern(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabfm_regression
+
+    captured = {}
+
+    class FakeVersionedCheckpoint:
+        def load(self, model_type="regression"):
+            captured["model_type"] = model_type
+            return object()
+
+    class FakeTabFMRegressor:
+        def __init__(self, model):
+            captured["model"] = model
+
+        def fit(self, X_train, y_train):
+            captured["fit_shape"] = (len(X_train), len(y_train))
+            return self
+
+        def predict(self, X_test):
+            captured["predict_index"] = list(X_test.index)
+            return pd.Series([123.0] * len(X_test), index=X_test.index)
+
+    fake_tabfm = types.ModuleType("tabfm")
+    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
+    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
+    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    model, predictions, metadata = run_tabfm_regression(X_train, y_train, X_test)
+
+    assert isinstance(model, FakeTabFMRegressor)
+    assert captured["model_type"] == "regression"
+    assert captured["fit_shape"] == (2, 2)
+    assert captured["predict_index"] == [0]
+    assert captured["model"] is not None
+    assert list(predictions["predicted_price_eur"]) == [123.0]
+    assert metadata["model_name"] == "tabfm"
+    assert metadata["backend"] == "pytorch"
+    assert metadata["runtime_seconds"] >= 0
+    assert "weights" in metadata["notes"].lower()
+
+
+def test_run_tabfm_regression_raises_helpful_error_when_dependency_is_missing():
+    try:
+        tabfm_spec = importlib.util.find_spec("tabfm")
+    except ModuleNotFoundError:
+        tabfm_spec = None
+
+    if tabfm_spec is not None:
+        pytest.skip("tabfm is installed in this environment")
+
+    from elferspot_listings.modeling.challengers import run_tabfm_regression
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(RuntimeError, match=r"\.\[advanced\]"):
+        run_tabfm_regression(X_train, y_train, X_test)
 
 
 def test_run_autogluon_regression_raises_helpful_error_when_dependency_is_missing():

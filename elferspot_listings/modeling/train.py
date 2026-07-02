@@ -30,6 +30,7 @@ from .challengers import (
     OptionalDependencyNotInstalledError,
     _path_is_symlink_or_junction,
     run_autogluon_regression,
+    run_tabfm_regression,
     _validate_autogluon_cleanup_target,
     run_tabpfn_client_regression,
     run_tabpfn_regression,
@@ -49,6 +50,7 @@ SUPPORTED_MODEL_NAMES = {
     "perpetual",
     "catboost",
     "tabpfn",
+    "tabfm",
     "autogluon",
     "all",
 }
@@ -286,6 +288,7 @@ def _log_benchmark_run(
     random_state: int,
     train_catboost: bool,
     run_tabpfn: bool,
+    run_tabfm: bool,
     run_autogluon: bool,
     autogluon_time_limit: int,
     metrics: dict[str, dict[str, float]],
@@ -298,6 +301,7 @@ def _log_benchmark_run(
             random_state=random_state,
             train_catboost=train_catboost,
             run_tabpfn=run_tabpfn,
+            run_tabfm=run_tabfm,
             run_autogluon=run_autogluon,
             autogluon_tl=autogluon_time_limit,
             output_dir=output_path,
@@ -320,6 +324,7 @@ def train_baseline_models(
     run_xgboost: bool = False,
     run_perpetual: bool = False,
     run_tabpfn: bool = False,
+    run_tabfm: bool = False,
     tabpfn_model_paths: list[str | None] | None = None,
     tabpfn_backend: str = "local",
     tabpfn_thinking: bool = False,
@@ -439,6 +444,7 @@ def train_baseline_models(
             baseline_artifact_models["perpetual"] = perpetual_model
 
     tabpfn_ran = False
+    tabfm_ran = False
     if should_run_tabpfn and tabpfn_backend == "client":
         model_name = "tabpfn_client_thinking" if tabpfn_thinking else "tabpfn_client"
         try:
@@ -485,9 +491,23 @@ def train_baseline_models(
                     skipped_models[model_name] = missing_tabpfn_message
                 else:
                     tabpfn_ran = True
-                    model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
-                    metrics[model_name] = model_metrics
-                    prediction_frames.append(model_predictions)
+                model_predictions, model_metrics = _score_predictions(model_name, y_test, tabpfn_predictions)
+                metrics[model_name] = model_metrics
+                prediction_frames.append(model_predictions)
+
+    should_run_tabfm = _should_run_model(requested_models, "tabfm", legacy_enabled=run_tabfm)
+    if should_run_tabfm:
+        try:
+            _, tabfm_predictions, metadata = run_tabfm_regression(X_train, y_train, X_test, random_state=random_state)
+        except OptionalDependencyNotInstalledError as exc:
+            skipped_models["tabfm"] = str(exc)
+        else:
+            tabfm_ran = True
+            model_name = str(metadata.get("model_name", "tabfm"))
+            predicted = tabfm_predictions["predicted_price_eur"] if isinstance(tabfm_predictions, pd.DataFrame) else tabfm_predictions
+            model_predictions, model_metrics = _score_predictions(model_name, y_test, predicted)
+            metrics[model_name] = model_metrics
+            prediction_frames.append(model_predictions)
 
     should_run_autogluon = _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon)
     if should_run_autogluon:
@@ -608,6 +628,7 @@ def train_baseline_models(
         random_state=random_state,
         train_catboost=train_catboost,
         run_tabpfn=tabpfn_ran,
+        run_tabfm=tabfm_ran,
         run_autogluon=should_run_autogluon,
         autogluon_time_limit=autogluon_time_limit,
         metrics=metrics,

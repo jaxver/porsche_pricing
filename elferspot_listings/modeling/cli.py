@@ -10,7 +10,7 @@ import pandas as pd
 from .train import train_baseline_models
 
 
-MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "xgboost", "perpetual", "catboost", "tabpfn", "autogluon", "all"]
+MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "xgboost", "perpetual", "catboost", "tabpfn", "tabfm", "autogluon", "all"]
 
 
 def _parse_autogluon_dynamic_stacking(value: str) -> bool | None:
@@ -107,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         "run_xgboost": include_optionals,
         "run_perpetual": include_optionals,
         "run_tabpfn": include_optionals,
+        "run_tabfm": include_optionals,
         "tabpfn_model_paths": args.tabpfn_checkpoint,
         "tabpfn_backend": args.tabpfn_backend,
         "tabpfn_thinking": args.tabpfn_thinking,

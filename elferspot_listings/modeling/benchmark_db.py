@@ -39,6 +39,7 @@ def ensure_schema(db_path: str | Path) -> None:
                 random_state    INTEGER NOT NULL DEFAULT 42,
                 train_catboost  INTEGER NOT NULL DEFAULT 0,
                 run_tabpfn      INTEGER NOT NULL DEFAULT 0,
+                run_tabfm       INTEGER NOT NULL DEFAULT 0,
                 run_autogluon   INTEGER NOT NULL DEFAULT 0,
                 autogluon_tl    INTEGER NOT NULL DEFAULT 600,
                 output_dir      TEXT,
@@ -65,6 +66,9 @@ def ensure_schema(db_path: str | Path) -> None:
             );
             """
         )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if "run_tabfm" not in columns:
+            conn.execute("ALTER TABLE runs ADD COLUMN run_tabfm INTEGER NOT NULL DEFAULT 0")
 
 
 def insert_run(
@@ -73,6 +77,7 @@ def insert_run(
     random_state: int,
     train_catboost: bool,
     run_tabpfn: bool,
+    run_tabfm: bool,
     run_autogluon: bool,
     autogluon_tl: int,
     output_dir: str | Path | None,
@@ -85,14 +90,15 @@ def insert_run(
         cursor = conn.execute(
             """
             INSERT INTO runs (
-                random_state, train_catboost, run_tabpfn, run_autogluon,
+                random_state, train_catboost, run_tabpfn, run_tabfm, run_autogluon,
                 autogluon_tl, output_dir, duration_sec, git_commit
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 random_state,
                 int(train_catboost),
                 int(run_tabpfn),
+                int(run_tabfm),
                 int(run_autogluon),
                 autogluon_tl,
                 None if output_dir is None else str(output_dir),
@@ -146,7 +152,7 @@ def get_latest_run(db_path: str | Path) -> dict[str, Any] | None:
     with _connect(db_path) as conn:
         run_row = conn.execute(
             """
-            SELECT id, created_at, random_state, train_catboost, run_tabpfn,
+            SELECT id, created_at, random_state, train_catboost, run_tabpfn, run_tabfm,
                    run_autogluon, autogluon_tl, output_dir, duration_sec, git_commit
             FROM runs
             ORDER BY id DESC
@@ -162,6 +168,7 @@ def get_latest_run(db_path: str | Path) -> dict[str, Any] | None:
             "random_state",
             "train_catboost",
             "run_tabpfn",
+            "run_tabfm",
             "run_autogluon",
             "autogluon_tl",
             "output_dir",
@@ -211,6 +218,7 @@ def get_run_history(db_path: str | Path) -> pd.DataFrame:
             r.random_state,
             r.train_catboost,
             r.run_tabpfn,
+            r.run_tabfm,
             r.run_autogluon,
             r.autogluon_tl,
             r.duration_sec,
@@ -218,7 +226,7 @@ def get_run_history(db_path: str | Path) -> pd.DataFrame:
         FROM runs AS r
         LEFT JOIN model_metrics AS m ON m.run_id = r.id
         GROUP BY r.id, r.created_at, r.random_state, r.train_catboost,
-                 r.run_tabpfn, r.run_autogluon, r.autogluon_tl, r.duration_sec
+                 r.run_tabpfn, r.run_tabfm, r.run_autogluon, r.autogluon_tl, r.duration_sec
         ORDER BY r.id
     """
     with _connect(db_path) as conn:

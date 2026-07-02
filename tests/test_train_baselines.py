@@ -105,6 +105,33 @@ def test_train_baseline_models_with_perpetual_only_runs_perpetual(tmp_path, monk
     assert set(result.predictions["model_name"]) == {"perpetual"}
 
 
+def test_train_baseline_models_with_tabfm_only_runs_tabfm(tmp_path, monkeypatch):
+    monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("skrub_ridge should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_xgboost_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("xgboost should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
+    monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
+
+    def fake_tabfm(X_train, y_train, X_test, random_state=42):
+        return object(), pd.Series([777.0] * len(X_test), index=X_test.index), {
+            "model_name": "tabfm",
+            "backend": "pytorch",
+            "runtime_seconds": 0.0,
+            "notes": "fake tabfm note",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["tabfm"])
+
+    assert set(result.metrics) == {"tabfm"}
+    assert set(result.predictions["model_name"]) == {"tabfm"}
+    assert result.predictions["predicted_price_eur"].tolist() == [777.0] * len(result.predictions)
+
+
 def test_train_baseline_models_records_missing_perpetual_skip_and_continues(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 
@@ -248,6 +275,7 @@ def test_train_baseline_models_logs_explicit_autogluon_run_flag(tmp_path, monkey
         random_state,
         train_catboost,
         run_tabpfn,
+        run_tabfm,
         run_autogluon,
         autogluon_tl,
         output_dir,
@@ -256,6 +284,7 @@ def test_train_baseline_models_logs_explicit_autogluon_run_flag(tmp_path, monkey
     ):
         captured["run_autogluon"] = run_autogluon
         captured["run_tabpfn"] = run_tabpfn
+        captured["run_tabfm"] = run_tabfm
         captured["random_state"] = random_state
         return 1
 
@@ -278,6 +307,7 @@ def test_train_baseline_models_logs_explicit_autogluon_run_flag(tmp_path, monkey
 
     assert captured["run_autogluon"] is True
     assert captured["run_tabpfn"] is False
+    assert captured["run_tabfm"] is False
 
 
 def test_train_baseline_models_ignores_benchmark_db_failures(tmp_path, monkeypatch):
@@ -304,6 +334,10 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run by default")),
     )
     monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_tabfm_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabfm should not run by default")),
+    )
+    monkeypatch.setattr(
         "elferspot_listings.modeling.train.run_autogluon_regression",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run by default")),
     )
@@ -312,8 +346,10 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
 
     assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge"}
     assert "tabpfn_default" not in result.metrics
+    assert "tabfm" not in result.metrics
     assert "autogluon" not in result.metrics
     assert "tabpfn_default" not in set(result.predictions["model_name"])
+    assert "tabfm" not in set(result.predictions["model_name"])
     assert "autogluon" not in set(result.predictions["model_name"])
 
 
@@ -423,6 +459,56 @@ def test_train_baseline_models_records_tabpfn_cuda_skip_and_continues(tmp_path, 
     assert result.skipped_models.get("tabpfn_default") == (
         "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` or install a CUDA-enabled PyTorch build."
     )
+
+
+def test_train_baseline_models_records_missing_tabfm_skip_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    def fake_tabfm(*_args, **_kwargs):
+        raise OptionalDependencyNotInstalledError("TabFM", "Install TabFM with `python -m pip install -e \".[advanced]\"`.")
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run in this test")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabfm=True)
+
+    assert "tabfm" not in result.metrics
+    assert result.skipped_models.get("tabfm") == 'Install TabFM with `python -m pip install -e "[advanced]"`.'
+
+
+def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    captured = {}
+
+    def fake_tabfm(X_train, y_train, X_test, random_state=42):
+        captured["X_train"] = X_train.copy()
+        captured["X_test"] = X_test.copy()
+        captured["random_state"] = random_state
+        return object(), pd.Series([444.0] * len(X_test), index=X_test.index), {
+            "model_name": "tabfm",
+            "backend": "pytorch",
+            "runtime_seconds": 0.0,
+            "notes": "fake tabfm note",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_tabfm=True)
+
+    assert "tabfm" in result.metrics
+    assert "tabfm" in set(result.predictions["model_name"])
+    assert result.predictions[result.predictions["model_name"] == "tabfm"]["predicted_price_eur"].tolist() == [444.0] * len(
+        result.predictions[result.predictions["model_name"] == "tabfm"]
+    )
+    assert captured["random_state"] == 42
+    assert not captured["X_train"].isna().any().any()
+    assert not captured["X_test"].isna().any().any()
 
 
 def test_train_baseline_models_records_missing_xgboost_skip_and_continues(tmp_path, monkeypatch):
