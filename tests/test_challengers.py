@@ -134,6 +134,36 @@ def test_run_tabfm_regression_converts_auth_like_load_failures_to_optional_depen
         run_tabfm_regression(X_train, y_train, X_test)
 
 
+def test_run_tabfm_regression_converts_network_load_failures_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
+
+    class FakeVersionedCheckpoint:
+        def load(self, model_type="regression"):
+            return object()
+
+    class FakeTabFMRegressor:
+        def __init__(self, model):
+            self.model = model
+
+        def fit(self, X_train, y_train):
+            raise RuntimeError("503 Service Unavailable: connection timeout while fetching weights")
+
+        def predict(self, X_test):
+            return pd.Series([123.0] * len(X_test), index=X_test.index)
+
+    fake_tabfm = types.ModuleType("tabfm")
+    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
+    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
+    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(OptionalDependencyNotInstalledError, match=r"TabFM load/auth/download failed|connection timeout|503"):
+        run_tabfm_regression(X_train, y_train, X_test)
+
+
 def test_run_tabfm_regression_propagates_unrelated_training_errors(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabfm_regression
 
