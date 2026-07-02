@@ -8,6 +8,29 @@ from typing import Any
 import pandas as pd
 
 
+BEST_RUN_SUMMARY_COLUMNS = [
+    "model_name",
+    "run_id",
+    "created_at",
+    "output_dir",
+    "mae_eur",
+    "median_ae",
+    "mape",
+    "within_10",
+    "within_15",
+    "duration_sec",
+    "random_state",
+    "train_catboost",
+    "run_tabpfn",
+    "run_tabfm",
+    "run_autogluon",
+    "autogluon_tl",
+    "git_commit",
+    "skipped_count",
+    "skipped_models",
+]
+
+
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     return sqlite3.connect(Path(db_path))
 
@@ -231,3 +254,77 @@ def get_run_history(db_path: str | Path) -> pd.DataFrame:
     """
     with _connect(db_path) as conn:
         return pd.read_sql_query(query, conn)
+
+
+def get_best_run_summary(db_path: str | Path) -> pd.DataFrame:
+    ensure_schema(db_path)
+    query = """
+        WITH skipped_summary AS (
+            SELECT
+                run_id,
+                COUNT(*) AS skipped_count,
+                GROUP_CONCAT(model_name, ', ') AS skipped_models
+            FROM (
+                SELECT run_id, model_name
+                FROM skipped_models
+                ORDER BY model_name
+            )
+            GROUP BY run_id
+        ), ranked AS (
+            SELECT
+                m.model_name,
+                r.id AS run_id,
+                r.created_at,
+                r.output_dir,
+                m.mae_eur,
+                m.median_ae,
+                m.mape,
+                m.within_10,
+                m.within_15,
+                r.duration_sec,
+                r.random_state,
+                r.train_catboost,
+                r.run_tabpfn,
+                r.run_tabfm,
+                r.run_autogluon,
+                r.autogluon_tl,
+                r.git_commit,
+                COALESCE(s.skipped_count, 0) AS skipped_count,
+                COALESCE(s.skipped_models, '') AS skipped_models,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.model_name
+                    ORDER BY m.mae_eur ASC, r.created_at DESC, r.id DESC
+                ) AS rn
+            FROM model_metrics AS m
+            JOIN runs AS r ON r.id = m.run_id
+            LEFT JOIN skipped_summary AS s ON s.run_id = r.id
+        )
+        SELECT
+            model_name,
+            run_id,
+            created_at,
+            output_dir,
+            mae_eur,
+            median_ae,
+            mape,
+            within_10,
+            within_15,
+            duration_sec,
+            random_state,
+            train_catboost,
+            run_tabpfn,
+            run_tabfm,
+            run_autogluon,
+            autogluon_tl,
+            git_commit,
+            skipped_count,
+            skipped_models
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY mae_eur ASC, model_name ASC
+    """
+    with _connect(db_path) as conn:
+        summary = pd.read_sql_query(query, conn)
+    if summary.empty:
+        return pd.DataFrame(columns=BEST_RUN_SUMMARY_COLUMNS)
+    return summary.reindex(columns=BEST_RUN_SUMMARY_COLUMNS)
