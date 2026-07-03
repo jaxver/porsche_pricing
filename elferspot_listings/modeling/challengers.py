@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import inspect
+import os
 import time
 import shutil
+import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -182,6 +186,9 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "network unreachable",
             "ssl certificate",
             "certificate verify failed",
+            "file reconstruction error",
+            "internal writer error",
+            "background writer channel closed",
             "403",
             "429",
             "502",
@@ -189,6 +196,31 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "504",
         )
     )
+
+
+@contextlib.contextmanager
+def _temporarily_disable_huggingface_xet():
+    previous_env_value = os.environ.get("HF_HUB_DISABLE_XET")
+    constants_module = sys.modules.get("huggingface_hub.constants")
+    has_constants_flag = bool(constants_module is not None and hasattr(constants_module, "HF_HUB_DISABLE_XET"))
+    previous_constants_value = None
+    if has_constants_flag:
+        previous_constants_value = cast(Any, constants_module).HF_HUB_DISABLE_XET
+
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    if has_constants_flag:
+        cast(Any, constants_module).HF_HUB_DISABLE_XET = True
+
+    try:
+        yield
+    finally:
+        if previous_env_value is None:
+            os.environ.pop("HF_HUB_DISABLE_XET", None)
+        else:
+            os.environ["HF_HUB_DISABLE_XET"] = previous_env_value
+
+        if has_constants_flag:
+            cast(Any, constants_module).HF_HUB_DISABLE_XET = previous_constants_value
 
 
 def run_tabfm_regression(
@@ -204,7 +236,8 @@ def run_tabfm_regression(
         raise _optional_dependency_error("TabFM", exc) from exc
 
     try:
-        checkpoint = tabfm_v1_0_0.load(model_type="regression")
+        with _temporarily_disable_huggingface_xet():
+            checkpoint = tabfm_v1_0_0.load(model_type="regression")
     except Exception as exc:
         if _is_tabfm_load_failure(exc):
             raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc

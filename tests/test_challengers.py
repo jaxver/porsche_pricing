@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 import types
 import tempfile
@@ -83,6 +84,52 @@ def test_run_tabfm_regression_uses_published_loader_pattern(monkeypatch):
     assert metadata["backend"] == "pytorch"
     assert metadata["runtime_seconds"] >= 0
     assert "weights" in metadata["notes"].lower()
+
+
+def test_run_tabfm_regression_temporarily_disables_huggingface_xet(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabfm_regression
+
+    constants_module = types.ModuleType("huggingface_hub.constants")
+    setattr(constants_module, "HF_HUB_DISABLE_XET", False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants_module)
+
+    captured = {}
+
+    class FakeVersionedCheckpoint:
+        def load(self, model_type="regression"):
+            captured["env"] = os.environ.get("HF_HUB_DISABLE_XET")
+            captured["constant"] = constants_module.HF_HUB_DISABLE_XET
+            return object()
+
+    class FakeTabFMRegressor:
+        def __init__(self, model):
+            self.model = model
+
+        def fit(self, X_train, y_train):
+            return self
+
+        def predict(self, X_test):
+            return pd.Series([123.0] * len(X_test), index=X_test.index)
+
+    fake_tabfm = types.ModuleType("tabfm")
+    setattr(fake_tabfm, "TabFMRegressor", FakeTabFMRegressor)
+    setattr(fake_tabfm, "tabfm_v1_0_0_pytorch", FakeVersionedCheckpoint())
+    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    model, predictions, metadata = run_tabfm_regression(X_train, y_train, X_test)
+
+    assert isinstance(model, FakeTabFMRegressor)
+    assert captured["env"] == "1"
+    assert captured["constant"] is True
+    assert os.environ.get("HF_HUB_DISABLE_XET") is None
+    assert constants_module.HF_HUB_DISABLE_XET is False
+    assert list(predictions["predicted_price_eur"]) == [123.0]
+    assert metadata["model_name"] == "tabfm"
 
 
 def test_run_tabfm_regression_raises_helpful_error_when_dependency_is_missing():
