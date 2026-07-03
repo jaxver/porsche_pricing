@@ -76,6 +76,7 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "autogluon_presets": "best_quality",
         "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
+        "verbose": False,
     }
     assert printed == {
         "metrics": {"ridge": {"mae_eur": 123.4}},
@@ -152,6 +153,7 @@ def test_cli_perpetual_model_only_passes_only_that_model(monkeypatch, capsys, tm
         "autogluon_presets": "best_quality",
         "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
+        "verbose": False,
     }
 
 
@@ -179,6 +181,29 @@ def test_cli_passes_gpu_flags_to_train_baseline_models(monkeypatch, capsys, tmp_
     assert exit_code == 0
     assert captured["kwargs"]["device"] == "gpu"
     assert captured["kwargs"]["gpu_devices"] == "0"
+
+
+def test_cli_passes_verbose_flag_to_train_baseline_models(monkeypatch, capsys, tmp_path):
+    from elferspot_listings.modeling import cli
+
+    captured = {}
+    gold_df = pd.DataFrame({"price_in_eur": [100000.0], "Mileage_km": [10000.0]})
+
+    monkeypatch.setattr(cli.config, "LISTINGS_GOLD", tmp_path / "default_input.xlsx")
+    monkeypatch.setattr(cli.config, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(cli.pd, "read_excel", lambda path: gold_df)
+
+    def fake_train_baseline_models(gold_df_arg, output_dir, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(metrics={}, output_dir=Path(output_dir), skipped_models={})
+
+    monkeypatch.setattr(cli, "train_baseline_models", fake_train_baseline_models)
+
+    exit_code = cli.main(["--model", "ridge", "--verbose"])
+    json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert captured["kwargs"]["verbose"] is True
 
 
 def test_cli_passes_tabpfn_client_thinking_kwargs(monkeypatch, capsys, tmp_path):
@@ -237,6 +262,7 @@ def test_cli_passes_tabpfn_client_thinking_kwargs(monkeypatch, capsys, tmp_path)
         "autogluon_presets": "best_quality",
         "autogluon_dynamic_stacking": None,
         "autogluon_clean_output": False,
+        "verbose": False,
     }
 
 

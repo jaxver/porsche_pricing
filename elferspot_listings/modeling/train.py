@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import time
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,45 @@ from .persistence import SkopsNotInstalledError, save_sklearn_model, write_model
 
 
 logger = logging.getLogger(__name__)
+_MODEL_RUN_HEARTBEAT_SECONDS = 300
+
+
+class _ModelRunLogger:
+    def __init__(self, model_name: str, verbose: bool, heartbeat_seconds: int | None = None):
+        self.model_name = model_name
+        self.verbose = verbose
+        self.heartbeat_seconds = _MODEL_RUN_HEARTBEAT_SECONDS if heartbeat_seconds is None else heartbeat_seconds
+        self._started_at = 0.0
+        self._stop_event = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
+
+    def __enter__(self) -> "_ModelRunLogger":
+        self._started_at = time.perf_counter()
+        logger.info("%s: start", self.model_name)
+        if self.heartbeat_seconds > 0:
+            self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name=f"{self.model_name}-heartbeat", daemon=True)
+            self._heartbeat_thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._stop_event.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=1)
+
+        elapsed_seconds = time.perf_counter() - self._started_at
+        if exc_type is None:
+            logger.info("%s: finish in %.1fs", self.model_name, elapsed_seconds)
+        else:
+            logger.info("%s: failed after %.1fs", self.model_name, elapsed_seconds)
+        return False
+
+    def step(self, message: str) -> None:
+        if self.verbose:
+            logger.info("%s: %s", self.model_name, message)
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop_event.wait(self.heartbeat_seconds):
+            logger.info("%s: heartbeat after %.1fs", self.model_name, time.perf_counter() - self._started_at)
 
 SUPPORTED_MODEL_NAMES = {
     "median",
@@ -337,6 +377,7 @@ def train_baseline_models(
     autogluon_dynamic_stacking: bool | None = None,
     autogluon_clean_output: bool = False,
     models: list[str] | None = None,
+    verbose: bool = False,
     device: str = "cpu",
     gpu_devices: str | None = None,
 ) -> BenchmarkResult:
@@ -362,7 +403,9 @@ def train_baseline_models(
 
     elasticnet_params = dict(config.MODEL_CONFIG["elasticnet"])
     if _should_run_model(requested_models, "elasticnet", legacy_enabled=True) and tune_elasticnet:
-        elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
+        with _ModelRunLogger("elasticnet_tuning", verbose=verbose) as model_log:
+            model_log.step("search")
+            elasticnet_params = tune_elasticnet_params(X_train, y_train, selected, random_state=random_state, n_trials=tuning_trials)
 
     should_run_tabpfn = _should_run_model(
         requested_models,
@@ -376,88 +419,104 @@ def train_baseline_models(
         raise ValueError("TabPFN thinking mode requires the client backend.")
 
     if _should_run_model(requested_models, "median", legacy_enabled=True):
-        model = MedianRegressor()
-        model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
-        model_predictions = model_predictions.assign(model_name="median")
-        metrics["median"] = model_metrics
-        prediction_frames.append(model_predictions)
+        with _ModelRunLogger("median", verbose=verbose) as model_log:
+            model_log.step("fit and score")
+            model = MedianRegressor()
+            model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="median")
+            metrics["median"] = model_metrics
+            prediction_frames.append(model_predictions)
 
     if _should_run_model(requested_models, "ridge", legacy_enabled=True):
-        ridge_model = build_ridge_pipeline(selected)
-        model_predictions, model_metrics = _score_model(ridge_model, X_train, y_train, X_test, y_test)
-        model_predictions = model_predictions.assign(model_name="ridge")
-        metrics["ridge"] = model_metrics
-        prediction_frames.append(model_predictions)
-        baseline_artifact_models["ridge"] = ridge_model
+        with _ModelRunLogger("ridge", verbose=verbose) as model_log:
+            model_log.step("build")
+            ridge_model = build_ridge_pipeline(selected)
+            model_log.step("fit and score")
+            model_predictions, model_metrics = _score_model(ridge_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="ridge")
+            metrics["ridge"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["ridge"] = ridge_model
 
     if _should_run_model(requested_models, "elasticnet", legacy_enabled=True):
-        elasticnet_model = build_elasticnet_pipeline(
-            selected,
-            alpha=float(elasticnet_params["alpha"]),
-            l1_ratio=float(elasticnet_params["l1_ratio"]),
-            max_iter=int(elasticnet_params["max_iter"]),
-        )
-        model_predictions, model_metrics = _score_model(elasticnet_model, X_train, y_train, X_test, y_test)
-        model_predictions = model_predictions.assign(model_name="elasticnet")
-        metrics["elasticnet"] = model_metrics
-        prediction_frames.append(model_predictions)
-        baseline_artifact_models["elasticnet"] = elasticnet_model
+        with _ModelRunLogger("elasticnet", verbose=verbose) as model_log:
+            model_log.step("build")
+            elasticnet_model = build_elasticnet_pipeline(
+                selected,
+                alpha=float(elasticnet_params["alpha"]),
+                l1_ratio=float(elasticnet_params["l1_ratio"]),
+                max_iter=int(elasticnet_params["max_iter"]),
+            )
+            model_log.step("fit and score")
+            model_predictions, model_metrics = _score_model(elasticnet_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="elasticnet")
+            metrics["elasticnet"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["elasticnet"] = elasticnet_model
 
     if _should_run_model(requested_models, "skrub_ridge", legacy_enabled=True):
         try:
-            skrub_model = build_skrub_ridge_pipeline(selected)
+            with _ModelRunLogger("skrub_ridge", verbose=verbose) as model_log:
+                model_log.step("build")
+                skrub_model = build_skrub_ridge_pipeline(selected)
+                model_log.step("fit and score")
+                model_predictions, model_metrics = _score_model(skrub_model, X_train, y_train, X_test, y_test)
+                model_predictions = model_predictions.assign(model_name="skrub_ridge")
+                metrics["skrub_ridge"] = model_metrics
+                prediction_frames.append(model_predictions)
+                baseline_artifact_models["skrub_ridge"] = skrub_model
         except ImportError:
             skipped_models["skrub_ridge"] = "skrub is not installed"
-        else:
-            model_predictions, model_metrics = _score_model(skrub_model, X_train, y_train, X_test, y_test)
-            model_predictions = model_predictions.assign(model_name="skrub_ridge")
-            metrics["skrub_ridge"] = model_metrics
-            prediction_frames.append(model_predictions)
-            baseline_artifact_models["skrub_ridge"] = skrub_model
 
     if _should_run_model(requested_models, "xgboost", legacy_enabled=run_xgboost):
         try:
-            xgboost_model = build_xgboost_pipeline(
-                selected,
-                random_state=random_state,
-                **({"device": device} if device == "gpu" else {}),
-            )
+            with _ModelRunLogger("xgboost", verbose=verbose) as model_log:
+                model_log.step("build")
+                xgboost_model = build_xgboost_pipeline(
+                    selected,
+                    random_state=random_state,
+                    **({"device": device} if device == "gpu" else {}),
+                )
+                model_log.step("fit and score")
+                model_predictions, model_metrics = _score_model(xgboost_model, X_train, y_train, X_test, y_test)
+                model_predictions = model_predictions.assign(model_name="xgboost")
+                metrics["xgboost"] = model_metrics
+                prediction_frames.append(model_predictions)
+                baseline_artifact_models["xgboost"] = xgboost_model
         except ImportError:
             skipped_models["xgboost"] = "xgboost is not installed"
-        else:
-            model_predictions, model_metrics = _score_model(xgboost_model, X_train, y_train, X_test, y_test)
-            model_predictions = model_predictions.assign(model_name="xgboost")
-            metrics["xgboost"] = model_metrics
-            prediction_frames.append(model_predictions)
-            baseline_artifact_models["xgboost"] = xgboost_model
 
     if _should_run_model(requested_models, "perpetual", legacy_enabled=run_perpetual):
         try:
-            perpetual_model = build_perpetual_pipeline(selected, random_state=random_state)
+            with _ModelRunLogger("perpetual", verbose=verbose) as model_log:
+                model_log.step("build")
+                perpetual_model = build_perpetual_pipeline(selected, random_state=random_state)
+                model_log.step("fit and score")
+                model_predictions, model_metrics = _score_model(perpetual_model, X_train, y_train, X_test, y_test)
+                model_predictions = model_predictions.assign(model_name="perpetual")
+                metrics["perpetual"] = model_metrics
+                prediction_frames.append(model_predictions)
+                baseline_artifact_models["perpetual"] = perpetual_model
         except ImportError:
             skipped_models["perpetual"] = "perpetual is not installed"
-        else:
-            model_predictions, model_metrics = _score_model(perpetual_model, X_train, y_train, X_test, y_test)
-            model_predictions = model_predictions.assign(model_name="perpetual")
-            metrics["perpetual"] = model_metrics
-            prediction_frames.append(model_predictions)
-            baseline_artifact_models["perpetual"] = perpetual_model
 
     tabpfn_ran = False
     tabfm_ran = False
     if should_run_tabpfn and tabpfn_backend == "client":
         model_name = "tabpfn_client_thinking" if tabpfn_thinking else "tabpfn_client"
         try:
-            _, tabpfn_predictions, metadata = run_tabpfn_client_regression(
-                X_train,
-                y_train,
-                X_test,
-                random_state=random_state,
-                thinking_mode=tabpfn_thinking,
-                thinking_effort=tabpfn_thinking_effort,
-                thinking_metric=tabpfn_thinking_metric,
-                thinking_timeout_s=tabpfn_thinking_timeout,
-            )
+            with _ModelRunLogger(model_name, verbose=verbose) as model_log:
+                model_log.step("fit and score")
+                _, tabpfn_predictions, metadata = run_tabpfn_client_regression(
+                    X_train,
+                    y_train,
+                    X_test,
+                    random_state=random_state,
+                    thinking_mode=tabpfn_thinking,
+                    thinking_effort=tabpfn_thinking_effort,
+                    thinking_metric=tabpfn_thinking_metric,
+                    thinking_timeout_s=tabpfn_thinking_timeout,
+                )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models[model_name] = str(exc)
         else:
@@ -477,15 +536,17 @@ def train_baseline_models(
                     skipped_models[model_name] = missing_tabpfn_message
                     continue
                 try:
-                    _, tabpfn_predictions, _ = run_tabpfn_regression(
-                        tabpfn_X_train,
-                        y_train,
-                        tabpfn_X_test,
-                        random_state=random_state,
-                        model_path=normalized_model_path,
-                        model_name=model_name,
-                        **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
-                    )
+                    with _ModelRunLogger(model_name, verbose=verbose) as model_log:
+                        model_log.step("fit and score")
+                        _, tabpfn_predictions, _ = run_tabpfn_regression(
+                            tabpfn_X_train,
+                            y_train,
+                            tabpfn_X_test,
+                            random_state=random_state,
+                            model_path=normalized_model_path,
+                            model_name=model_name,
+                            **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                        )
                 except OptionalDependencyNotInstalledError as exc:
                     missing_tabpfn_message = str(exc)
                     skipped_models[model_name] = missing_tabpfn_message
@@ -498,13 +559,15 @@ def train_baseline_models(
     should_run_tabfm = _should_run_model(requested_models, "tabfm", legacy_enabled=run_tabfm)
     if should_run_tabfm:
         try:
-            _, tabfm_predictions, metadata = run_tabfm_regression(
-                X_train,
-                y_train,
-                X_test,
-                random_state=random_state,
-                device=device,
-            )
+            with _ModelRunLogger("tabfm", verbose=verbose) as model_log:
+                model_log.step("fit and score")
+                _, tabfm_predictions, metadata = run_tabfm_regression(
+                    X_train,
+                    y_train,
+                    X_test,
+                    random_state=random_state,
+                    device=device,
+                )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["tabfm"] = str(exc)
         else:
@@ -522,16 +585,18 @@ def train_baseline_models(
         autogluon_test_df = X_test.copy()
         autogluon_test_df["price_in_eur"] = y_test.to_numpy(dtype=float)
         try:
-            _, autogluon_predictions, _, _ = run_autogluon_regression(
-                autogluon_train_df,
-                autogluon_test_df,
-                "price_in_eur",
-                output_path,
-                time_limit=autogluon_time_limit,
-                presets=autogluon_presets,
-                dynamic_stacking=autogluon_dynamic_stacking,
-                clean_output=autogluon_clean_output,
-            )
+            with _ModelRunLogger("autogluon", verbose=verbose) as model_log:
+                model_log.step("fit and score")
+                _, autogluon_predictions, _, _ = run_autogluon_regression(
+                    autogluon_train_df,
+                    autogluon_test_df,
+                    "price_in_eur",
+                    output_path,
+                    time_limit=autogluon_time_limit,
+                    presets=autogluon_presets,
+                    dynamic_stacking=autogluon_dynamic_stacking,
+                    clean_output=autogluon_clean_output,
+                )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["autogluon"] = str(exc)
         else:
@@ -543,22 +608,26 @@ def train_baseline_models(
         try:
             catboost_params = None
             if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost) and tune_catboost:
-                catboost_params = tune_catboost_params(
+                with _ModelRunLogger("catboost_tuning", verbose=verbose) as model_log:
+                    model_log.step("search")
+                    catboost_params = tune_catboost_params(
+                        X_train,
+                        y_train,
+                        selected,
+                        random_state=random_state,
+                        n_trials=tuning_trials,
+                        **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                    )
+            with _ModelRunLogger("catboost", verbose=verbose) as model_log:
+                model_log.step("fit and score")
+                catboost_model = fit_catboost_regressor(
                     X_train,
                     y_train,
                     selected,
                     random_state=random_state,
-                    n_trials=tuning_trials,
+                    params=catboost_params,
                     **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
                 )
-            catboost_model = fit_catboost_regressor(
-                X_train,
-                y_train,
-                selected,
-                random_state=random_state,
-                params=catboost_params,
-                **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
-            )
         except ImportError:
             skipped_models["catboost"] = "catboost is not installed"
         else:

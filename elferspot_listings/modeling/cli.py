@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import config
@@ -35,6 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed for the train/test split.")
     parser.add_argument("--device", choices=("cpu", "gpu"), default="cpu", help="Execution device for benchmark models.")
+    parser.add_argument("--verbose", action="store_true", help="Enable per-step benchmark logging.")
     parser.add_argument("--gpu-devices", default=None, help="CatBoost GPU device IDs such as 0 or 0:1.")
     parser.add_argument("--tune", action="store_true", help="Tune ElasticNet and CatBoost when those models are selected.")
     parser.add_argument("--tuning-trials", type=int, default=25, help="Number of Optuna trials for tuning.")
@@ -85,6 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     models = args.model or ["all"]
     model_set = set(models)
     include_optionals = args.include_optionals and "all" in model_set
@@ -123,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.device == "gpu" or args.gpu_devices is not None:
         train_kwargs["device"] = args.device
         train_kwargs["gpu_devices"] = args.gpu_devices
+    train_kwargs["verbose"] = args.verbose
 
     result = train_baseline_models(gold_df, args.output_dir, **train_kwargs)
 

@@ -4,6 +4,8 @@ import json
 import importlib.util
 import sys
 import types
+import logging
+import time
 from pathlib import Path
 from sklearn.dummy import DummyRegressor
 
@@ -511,6 +513,32 @@ def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, 
     assert captured["device"] == "cpu"
     assert not captured["X_train"].isna().any().any()
     assert not captured["X_test"].isna().any().any()
+
+
+def test_train_baseline_models_emits_verbose_step_and_heartbeat_logs(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="elferspot_listings.modeling.train")
+    monkeypatch.setattr("elferspot_listings.modeling.train._MODEL_RUN_HEARTBEAT_SECONDS", 0.001)
+
+    def fake_tabfm(X_train, y_train, X_test, random_state=42, device="cpu"):
+        time.sleep(0.2)
+        return object(), pd.Series([222.0] * len(X_test), index=X_test.index), {
+            "model_name": "tabfm",
+            "backend": "pytorch",
+            "runtime_seconds": 0.2,
+            "notes": "fake tabfm note",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+
+    result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["tabfm"], verbose=True)
+
+    messages = [record.message for record in caplog.records if record.name == "elferspot_listings.modeling.train"]
+    assert "tabfm" in set(result.predictions["model_name"])
+    assert any("tabfm: start" in message for message in messages)
+    assert any("tabfm: fit and score" in message for message in messages)
+    assert any("tabfm: heartbeat" in message for message in messages)
+    assert any("tabfm: finish" in message for message in messages)
 
 
 def test_train_baseline_models_records_missing_xgboost_skip_and_continues(tmp_path, monkeypatch):
