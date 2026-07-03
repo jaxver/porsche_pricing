@@ -115,7 +115,7 @@ def test_train_baseline_models_with_tabfm_only_runs_tabfm(tmp_path, monkeypatch)
     monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
     monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
 
-    def fake_tabfm(X_train, y_train, X_test, random_state=42):
+    def fake_tabfm(X_train, y_train, X_test, random_state=42, device="cpu"):
         return object(), pd.Series([777.0] * len(X_test), index=X_test.index), {
             "model_name": "tabfm",
             "backend": "pytorch",
@@ -485,10 +485,11 @@ def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, 
 
     captured = {}
 
-    def fake_tabfm(X_train, y_train, X_test, random_state=42):
+    def fake_tabfm(X_train, y_train, X_test, random_state=42, device="cpu"):
         captured["X_train"] = X_train.copy()
         captured["X_test"] = X_test.copy()
         captured["random_state"] = random_state
+        captured["device"] = device
         return object(), pd.Series([444.0] * len(X_test), index=X_test.index), {
             "model_name": "tabfm",
             "backend": "pytorch",
@@ -507,6 +508,7 @@ def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, 
         result.predictions[result.predictions["model_name"] == "tabfm"]
     )
     assert captured["random_state"] == 42
+    assert captured["device"] == "cpu"
     assert not captured["X_train"].isna().any().any()
     assert not captured["X_test"].isna().any().any()
 

@@ -2,14 +2,111 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import os
 import sys
 import types
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import pytest
+
+
+def _tabfm_regression_config() -> dict[str, object]:
+    return {
+        "col_nhead": 4,
+        "col_num_blocks": 3,
+        "col_num_inds": 256,
+        "decoder_hidden": None,
+        "embed_dim": 256,
+        "feature_group_size": 3,
+        "ff_factor": 4,
+        "icl_nhead": 8,
+        "icl_num_blocks": 24,
+        "is_classifier": False,
+        "max_classes": 10,
+        "num_freq": 32,
+        "row_nhead": 8,
+        "row_num_blocks": 3,
+        "row_num_cls": 8,
+    }
+
+
+def _write_tabfm_snapshot(snapshot_dir: Path, include_checkpoint: bool = True) -> Path:
+    regression_dir = snapshot_dir / "regression"
+    regression_dir.mkdir(parents=True, exist_ok=True)
+    (regression_dir / "config.json").write_text(json.dumps(_tabfm_regression_config()), encoding="utf-8")
+    if include_checkpoint:
+        (regression_dir / "model.safetensors").write_bytes(b"placeholder")
+    return snapshot_dir
+
+
+def _install_tabfm_test_doubles(
+    monkeypatch,
+    *,
+    snapshot_dir: Path | None = None,
+    snapshot_error: Exception | None = None,
+    load_file_error: Exception | None = None,
+    fit_error: Exception | None = None,
+) -> dict[str, object]:
+    import tabfm  # type: ignore[import-not-found]
+    import tabfm.src.pytorch.model as tabfm_model  # type: ignore[import-not-found]
+
+    captured: dict[str, object] = {}
+
+    class FakeTabFM:
+        def __init__(self, **config):
+            captured["config"] = config
+
+        def load_state_dict(self, state_dict, strict=True):
+            captured["state_dict"] = state_dict
+            captured["strict"] = strict
+            return self
+
+        def to(self, device):
+            captured["device"] = device
+            return self
+
+        def eval(self):
+            captured["eval"] = True
+            return self
+
+    class FakeTabFMRegressor:
+        def __init__(self, model):
+            captured["model"] = model
+
+        def fit(self, X_train, y_train):
+            if fit_error is not None:
+                raise fit_error
+            captured["fit_shape"] = (len(X_train), len(y_train))
+            return self
+
+        def predict(self, X_test):
+            captured["predict_index"] = list(X_test.index)
+            return pd.Series([123.0] * len(X_test), index=X_test.index)
+
+    def fake_snapshot_download(repo_id):
+        captured["repo_id"] = repo_id
+        captured["xet_env"] = os.environ.get("HF_HUB_DISABLE_XET")
+        if snapshot_error is not None:
+            raise snapshot_error
+        if snapshot_dir is None:
+            raise AssertionError("snapshot_dir is required when snapshot_error is not set")
+        return str(snapshot_dir)
+
+    def fake_load_file(path):
+        captured["checkpoint_path"] = Path(path)
+        if load_file_error is not None:
+            raise load_file_error
+        return {"fake_weight": 1.0}
+
+    monkeypatch.setattr(tabfm_model, "TabFM", FakeTabFM)
+    monkeypatch.setattr(tabfm, "TabFMRegressor", FakeTabFMRegressor)
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr("safetensors.torch.load_file", fake_load_file)
+    return captured
 
 
 def test_challengers_module_imports_without_advanced_dependencies():
@@ -41,95 +138,35 @@ def test_run_tabpfn_regression_raises_helpful_error_when_dependency_is_missing()
         run_tabpfn_regression(X_train, y_train, X_test)
 
 
-def test_run_tabfm_regression_uses_published_loader_pattern(monkeypatch):
+def test_run_tabfm_regression_loads_safetensors_checkpoint_and_moves_to_gpu(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabfm_regression
 
-    captured = {}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        captured = _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir)
+        monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
 
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            captured["model_type"] = model_type
-            return object()
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
 
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            captured["model"] = model
+        model, predictions, metadata = run_tabfm_regression(X_train, y_train, X_test, device="gpu")
 
-        def fit(self, X_train, y_train):
-            captured["fit_shape"] = (len(X_train), len(y_train))
-            return self
-
-        def predict(self, X_test):
-            captured["predict_index"] = list(X_test.index)
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
-    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
-
-    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
-    y_train = pd.Series([10.0, 20.0])
-    X_test = pd.DataFrame({"feature": [3.0]})
-
-    model, predictions, metadata = run_tabfm_regression(X_train, y_train, X_test)
-
-    assert isinstance(model, FakeTabFMRegressor)
-    assert captured["model_type"] == "regression"
+    assert captured["repo_id"] == "google/tabfm-1.0.0-pytorch"
+    assert captured["xet_env"] == "1"
+    assert str(captured["checkpoint_path"]).endswith("model.safetensors")
+    assert cast(dict, captured["config"])["is_classifier"] is False
+    assert captured["state_dict"] == {"fake_weight": 1.0}
+    assert captured["device"] == "cuda"
+    assert captured["eval"] is True
     assert captured["fit_shape"] == (2, 2)
     assert captured["predict_index"] == [0]
-    assert captured["model"] is not None
+    assert os.environ.get("HF_HUB_DISABLE_XET") is None
     assert list(predictions["predicted_price_eur"]) == [123.0]
     assert metadata["model_name"] == "tabfm"
     assert metadata["backend"] == "pytorch"
     assert metadata["runtime_seconds"] >= 0
-    assert "weights" in metadata["notes"].lower()
-
-
-def test_run_tabfm_regression_temporarily_disables_huggingface_xet(monkeypatch):
-    from elferspot_listings.modeling.challengers import run_tabfm_regression
-
-    constants_module = types.ModuleType("huggingface_hub.constants")
-    setattr(constants_module, "HF_HUB_DISABLE_XET", False)
-    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants_module)
-
-    captured = {}
-
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            captured["env"] = os.environ.get("HF_HUB_DISABLE_XET")
-            captured["constant"] = constants_module.HF_HUB_DISABLE_XET
-            return object()
-
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            self.model = model
-
-        def fit(self, X_train, y_train):
-            return self
-
-        def predict(self, X_test):
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    setattr(fake_tabfm, "TabFMRegressor", FakeTabFMRegressor)
-    setattr(fake_tabfm, "tabfm_v1_0_0_pytorch", FakeVersionedCheckpoint())
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
-    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
-
-    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
-    y_train = pd.Series([10.0, 20.0])
-    X_test = pd.DataFrame({"feature": [3.0]})
-
-    model, predictions, metadata = run_tabfm_regression(X_train, y_train, X_test)
-
-    assert isinstance(model, FakeTabFMRegressor)
-    assert captured["env"] == "1"
-    assert captured["constant"] is True
-    assert os.environ.get("HF_HUB_DISABLE_XET") is None
-    assert constants_module.HF_HUB_DISABLE_XET is False
-    assert list(predictions["predicted_price_eur"]) == [123.0]
-    assert metadata["model_name"] == "tabfm"
+    assert "safetensors" in metadata["notes"].lower()
 
 
 def test_run_tabfm_regression_raises_helpful_error_when_dependency_is_missing():
@@ -154,24 +191,7 @@ def test_run_tabfm_regression_raises_helpful_error_when_dependency_is_missing():
 def test_run_tabfm_regression_converts_auth_like_load_failures_to_optional_dependency_error(monkeypatch):
     from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
 
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            raise RuntimeError("401 Unauthorized: Prior Labs license required")
-
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            self.model = model
-
-        def fit(self, X_train, y_train):
-            return self
-
-        def predict(self, X_test):
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
-    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda repo_id: (_ for _ in ()).throw(RuntimeError("401 Unauthorized: Prior Labs license required")))
 
     X_train = pd.DataFrame({"feature": [1.0, 2.0]})
     y_train = pd.Series([10.0, 20.0])
@@ -184,24 +204,7 @@ def test_run_tabfm_regression_converts_auth_like_load_failures_to_optional_depen
 def test_run_tabfm_regression_converts_network_load_failures_to_optional_dependency_error(monkeypatch):
     from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
 
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            raise RuntimeError("503 Service Unavailable: connection timeout while fetching weights")
-
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            self.model = model
-
-        def fit(self, X_train, y_train):
-            return self
-
-        def predict(self, X_test):
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
-    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda repo_id: (_ for _ in ()).throw(RuntimeError("503 Service Unavailable: connection timeout while fetching weights")))
 
     X_train = pd.DataFrame({"feature": [1.0, 2.0]})
     y_train = pd.Series([10.0, 20.0])
@@ -214,24 +217,7 @@ def test_run_tabfm_regression_converts_network_load_failures_to_optional_depende
 def test_run_tabfm_regression_converts_certificate_load_failures_to_optional_dependency_error(monkeypatch):
     from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
 
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            raise RuntimeError("CERTIFICATE_VERIFY_FAILED while fetching checkpoint")
-
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            self.model = model
-
-        def fit(self, X_train, y_train):
-            return self
-
-        def predict(self, X_test):
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
-    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
+    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda repo_id: (_ for _ in ()).throw(RuntimeError("CERTIFICATE_VERIFY_FAILED while fetching checkpoint")))
 
     X_train = pd.DataFrame({"feature": [1.0, 2.0]})
     y_train = pd.Series([10.0, 20.0])
@@ -241,34 +227,34 @@ def test_run_tabfm_regression_converts_certificate_load_failures_to_optional_dep
         run_tabfm_regression(X_train, y_train, X_test)
 
 
+def test_run_tabfm_regression_converts_missing_checkpoint_layout_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir), include_checkpoint=False)
+        _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir)
+
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
+
+        with pytest.raises(OptionalDependencyNotInstalledError, match=r"TabFM load/auth/download failed|weights not found"):
+            run_tabfm_regression(X_train, y_train, X_test)
+
+
 def test_run_tabfm_regression_propagates_unrelated_training_errors(monkeypatch):
     from elferspot_listings.modeling.challengers import run_tabfm_regression
 
-    class FakeVersionedCheckpoint:
-        def load(self, model_type="regression"):
-            return object()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir, fit_error=ValueError("bad data"))
 
-    class FakeTabFMRegressor:
-        def __init__(self, model):
-            self.model = model
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
 
-        def fit(self, X_train, y_train):
-            raise ValueError("bad data")
-
-        def predict(self, X_test):
-            return pd.Series([123.0] * len(X_test), index=X_test.index)
-
-    fake_tabfm = types.ModuleType("tabfm")
-    fake_tabfm.TabFMRegressor = FakeTabFMRegressor
-    fake_tabfm.tabfm_v1_0_0_pytorch = FakeVersionedCheckpoint()
-    monkeypatch.setitem(sys.modules, "tabfm", fake_tabfm)
-
-    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
-    y_train = pd.Series([10.0, 20.0])
-    X_test = pd.DataFrame({"feature": [3.0]})
-
-    with pytest.raises(ValueError, match="bad data"):
-        run_tabfm_regression(X_train, y_train, X_test)
+        with pytest.raises(ValueError, match="bad data"):
+            run_tabfm_regression(X_train, y_train, X_test)
 
 
 def test_run_autogluon_regression_raises_helpful_error_when_dependency_is_missing():

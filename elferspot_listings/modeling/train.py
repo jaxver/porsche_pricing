@@ -498,7 +498,13 @@ def train_baseline_models(
     should_run_tabfm = _should_run_model(requested_models, "tabfm", legacy_enabled=run_tabfm)
     if should_run_tabfm:
         try:
-            _, tabfm_predictions, metadata = run_tabfm_regression(X_train, y_train, X_test, random_state=random_state)
+            _, tabfm_predictions, metadata = run_tabfm_regression(
+                X_train,
+                y_train,
+                X_test,
+                random_state=random_state,
+                device=device,
+            )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["tabfm"] = str(exc)
         else:

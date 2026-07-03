@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import inspect
 import os
 import time
@@ -189,6 +190,8 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "file reconstruction error",
             "internal writer error",
             "background writer channel closed",
+            "weights not found",
+            "config not found",
             "403",
             "429",
             "502",
@@ -223,21 +226,67 @@ def _temporarily_disable_huggingface_xet():
             cast(Any, constants_module).HF_HUB_DISABLE_XET = previous_constants_value
 
 
+def _load_tabfm_regression_checkpoint(device: str = "cpu") -> object:
+    try:
+        from huggingface_hub import snapshot_download
+        from safetensors.torch import load_file as load_safetensors_file
+        from tabfm.src.pytorch.model import TabFM
+    except ImportError as exc:
+        raise _optional_dependency_error("TabFM", exc) from exc
+
+    with _temporarily_disable_huggingface_xet():
+        base_path = snapshot_download(repo_id="google/tabfm-1.0.0-pytorch")
+
+    snapshot_path = Path(base_path)
+    config_candidates = (
+        snapshot_path / "regression" / "config.json",
+        snapshot_path / "config.json",
+    )
+    config_path = next((path for path in config_candidates if path.exists()), None)
+    if config_path is None:
+        raise FileNotFoundError(f"Weights config not found at: {snapshot_path}")
+
+    checkpoint_candidates = (
+        snapshot_path / "regression" / "model.safetensors",
+        snapshot_path / "regression" / "pytorch_model.bin",
+        snapshot_path / "model.safetensors",
+        snapshot_path / "pytorch_model.bin",
+    )
+    checkpoint_path = next((path for path in checkpoint_candidates if path.exists()), None)
+    if checkpoint_path is None:
+        raise FileNotFoundError(f"Weights not found at: {snapshot_path}")
+
+    model_config = json.loads(config_path.read_text(encoding="utf-8"))
+    model = TabFM(**model_config)
+
+    if checkpoint_path.suffix == ".safetensors":
+        state_dict = load_safetensors_file(str(checkpoint_path))
+    else:
+        import torch
+
+        state_dict = torch.load(checkpoint_path, map_location="cpu")
+
+    model.load_state_dict(state_dict, strict=True)
+    if device == "gpu":
+        model = model.to("cuda")
+    elif device not in ("cpu", "cuda"):
+        model = model.to(device)
+    model.eval()
+    return model
+
+
 def run_tabfm_regression(
     X_train,
     y_train,
     X_test,
     random_state: int = 42,
+    device: str = "cpu",
 ) -> tuple[object, pd.DataFrame, dict]:
     start = time.perf_counter()
     try:
-        from tabfm import TabFMRegressor, tabfm_v1_0_0_pytorch as tabfm_v1_0_0
-    except ImportError as exc:
-        raise _optional_dependency_error("TabFM", exc) from exc
+        from tabfm import TabFMRegressor
 
-    try:
-        with _temporarily_disable_huggingface_xet():
-            checkpoint = tabfm_v1_0_0.load(model_type="regression")
+        checkpoint = _load_tabfm_regression_checkpoint(device=device)
     except Exception as exc:
         if _is_tabfm_load_failure(exc):
             raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc
@@ -253,7 +302,7 @@ def run_tabfm_regression(
         "model_name": "tabfm",
         "backend": "pytorch",
         "runtime_seconds": time.perf_counter() - start,
-        "notes": "Using the published TabFM PyTorch checkpoint. First run may download weights.",
+        "notes": "Using the published TabFM PyTorch safetensors checkpoint. First run may download weights.",
     }
     return model, prediction_frame, metadata
 
