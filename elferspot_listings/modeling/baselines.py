@@ -93,9 +93,9 @@ def build_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegresso
 
 def build_elasticnet_pipeline(
     selected: SelectedColumns,
-    alpha: float = 1.0,
-    l1_ratio: float = 0.5,
-    max_iter: int = 10000,
+    alpha: float = 5e-05,
+    l1_ratio: float = 0.655,
+    max_iter: int = 20000,
 ) -> TransformedTargetRegressor:
     model = Pipeline(
         steps=[
