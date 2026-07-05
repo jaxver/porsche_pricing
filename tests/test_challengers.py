@@ -49,6 +49,7 @@ def _install_tabfm_test_doubles(
     snapshot_dir: Path | None = None,
     snapshot_error: Exception | None = None,
     load_file_error: Exception | None = None,
+    to_error: Exception | None = None,
     fit_error: Exception | None = None,
 ) -> dict[str, object]:
     import tabfm  # type: ignore[import-not-found]
@@ -67,6 +68,8 @@ def _install_tabfm_test_doubles(
 
         def to(self, device):
             captured["device"] = device
+            if to_error is not None:
+                raise to_error
             return self
 
         def eval(self):
@@ -96,8 +99,9 @@ def _install_tabfm_test_doubles(
             raise AssertionError("snapshot_dir is required when snapshot_error is not set")
         return str(snapshot_dir)
 
-    def fake_load_file(path):
+    def fake_load_file(path, device=None):
         captured["checkpoint_path"] = Path(path)
+        captured["load_device"] = device
         if load_file_error is not None:
             raise load_file_error
         return {"fake_weight": 1.0}
@@ -155,6 +159,7 @@ def test_run_tabfm_regression_loads_safetensors_checkpoint_and_moves_to_gpu(monk
     assert captured["repo_id"] == "google/tabfm-1.0.0-pytorch"
     assert captured["xet_env"] == "1"
     assert str(captured["checkpoint_path"]).endswith("model.safetensors")
+    assert captured["load_device"] == "cpu"
     assert cast(dict, captured["config"])["is_classifier"] is False
     assert captured["state_dict"] == {"fake_weight": 1.0}
     assert captured["device"] == "cuda"
@@ -240,6 +245,42 @@ def test_run_tabfm_regression_converts_missing_checkpoint_layout_to_optional_dep
 
         with pytest.raises(OptionalDependencyNotInstalledError, match=r"TabFM load/auth/download failed|weights not found"):
             run_tabfm_regression(X_train, y_train, X_test)
+
+
+def test_run_tabfm_regression_converts_paging_file_load_failures_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        paging_file_error = OSError("The paging file is too small for this operation to complete.")
+        paging_file_error.winerror = 1455
+        _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir, load_file_error=paging_file_error)
+
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
+
+        with pytest.raises(OptionalDependencyNotInstalledError, match=r"TabFM load/auth/download failed|paging file is too small"):
+            run_tabfm_regression(X_train, y_train, X_test)
+
+
+def test_run_tabfm_regression_converts_cuda_unavailable_errors_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        _install_tabfm_test_doubles(
+            monkeypatch,
+            snapshot_dir=snapshot_dir,
+            to_error=AssertionError("Torch not compiled with CUDA enabled"),
+        )
+
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
+
+        with pytest.raises(OptionalDependencyNotInstalledError, match=r"CUDA|cuda|Torch not compiled with CUDA enabled|device cpu"):
+            run_tabfm_regression(X_train, y_train, X_test, device="gpu")
 
 
 def test_run_tabfm_regression_propagates_unrelated_training_errors(monkeypatch):

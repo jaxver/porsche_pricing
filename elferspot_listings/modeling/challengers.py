@@ -28,6 +28,10 @@ _TABFM_LOAD_GUIDANCE = (
     "TabFM load/auth/download failed. Re-run after allowing network access, resolving any auth or license prompt, "
     "and remember the first run may download the published weights."
 )
+_TABFM_CUDA_UNAVAILABLE_GUIDANCE = (
+    "local TabFM GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
+    "or install a CUDA-enabled PyTorch build."
+)
 _TABPFN_CUDA_UNAVAILABLE_GUIDANCE = (
     "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
     "or install a CUDA-enabled PyTorch build."
@@ -168,6 +172,8 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
 
 def _is_tabfm_load_failure(exc: BaseException) -> bool:
     message = str(exc).lower().replace("_", " ")
+    if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 1455:
+        return True
     return any(
         marker in message
         for marker in (
@@ -192,11 +198,26 @@ def _is_tabfm_load_failure(exc: BaseException) -> bool:
             "background writer channel closed",
             "weights not found",
             "config not found",
+            "paging file is too small",
             "403",
             "429",
             "502",
             "503",
             "504",
+        )
+    )
+
+
+def _is_tabfm_cuda_unavailable_failure(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "torch not compiled with cuda enabled",
+            "cuda is unavailable",
+            "cuda unavailable",
+            "cuda not available",
+            "torch/cuda is not available",
         )
     )
 
@@ -260,7 +281,7 @@ def _load_tabfm_regression_checkpoint(device: str = "cpu") -> object:
     model = TabFM(**model_config)
 
     if checkpoint_path.suffix == ".safetensors":
-        state_dict = load_safetensors_file(str(checkpoint_path))
+        state_dict = load_safetensors_file(str(checkpoint_path), device="cpu")
     else:
         import torch
 
@@ -288,6 +309,8 @@ def run_tabfm_regression(
 
         checkpoint = _load_tabfm_regression_checkpoint(device=device)
     except Exception as exc:
+        if _is_tabfm_cuda_unavailable_failure(exc):
+            raise _optional_dependency_error("TabFM", exc, _TABFM_CUDA_UNAVAILABLE_GUIDANCE) from exc
         if _is_tabfm_load_failure(exc):
             raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc
         raise
@@ -345,7 +368,7 @@ def run_tabpfn_regression(
             device_note = "Requested GPU device, but TabPFN constructor did not accept a device parameter."
 
     try:
-        model = TabPFNRegressor(**model_kwargs)
+        model = TabPFNRegressor(**cast(Any, model_kwargs))
         model.fit(X_train, y_train)
     except Exception as exc:
         if device == "gpu" and _is_tabpfn_cuda_unavailable_failure(exc):
@@ -408,7 +431,7 @@ def run_tabpfn_client_regression(
         model_kwargs["thinking_timeout_s"] = thinking_timeout_s
 
     try:
-        model = TabPFNRegressor(**model_kwargs)
+        model = TabPFNRegressor(**cast(Any, model_kwargs))
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
     except Exception as exc:
@@ -469,7 +492,9 @@ def run_autogluon_regression(
     if dynamic_stacking is not None:
         fit_kwargs["dynamic_stacking"] = dynamic_stacking
 
-    predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(train_df, **fit_kwargs)
+    predictor = TabularPredictor(label=target, path=str(output_path), problem_type="regression").fit(
+        train_df, **cast(Any, fit_kwargs)
+    )
     features = test_df.drop(columns=[target], errors="ignore")
     predictions = predictor.predict(features)
     leaderboard = predictor.leaderboard(test_df, silent=True)
