@@ -20,6 +20,27 @@ from elferspot_listings.utils.exchange_rates import fetch_latest_rates, convert_
 logger = logging.getLogger(__name__)
 
 
+PRICE_PATTERN = re.compile(r"(?P<currency>[A-Z]{3})\s*(?P<amount>[\d.,]+)")
+
+
+def _normalize_price_fields(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize notebook price columns into lowercase price/currency fields."""
+    if "price" in df.columns:
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    elif "Price" in df.columns:
+        extracted = df["Price"].astype("string").str.extract(PRICE_PATTERN)
+        df["price"] = pd.to_numeric(
+            extracted["amount"].astype("string").str.replace(",", "", regex=False),
+            errors="coerce",
+        )
+        df["currency"] = extracted["currency"]
+
+    if "currency" in df.columns:
+        df["currency"] = df["currency"].astype("string").str.upper()
+
+    return df
+
+
 def clean_mileage(df: pd.DataFrame) -> pd.DataFrame:
     """Extract and standardize mileage values."""
     logger.info("Cleaning mileage data")
@@ -152,6 +173,9 @@ def process_bronze_to_silver(
     # Load bronze data
     df = pd.read_excel(bronze_path)
     logger.info(f"Loaded {len(df)} rows from bronze")
+
+    # Normalize the notebook's capitalized fields before any string or numeric work.
+    df = _normalize_price_fields(df)
     
     # Remove duplicates
     initial_count = len(df)

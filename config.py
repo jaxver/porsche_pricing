@@ -35,6 +35,7 @@ ALL_LISTING_URLS_FILE = DATA_DIR / "all_listing_urls.csv"
 LISTINGS_BRONZE = DATA_DIR_BRONZE / "all_listings_bronze.xlsx"
 LISTINGS_SILVER = DATA_DIR_SILVER / "all_listings_silver.xlsx"
 LISTINGS_GOLD = DATA_DIR_GOLD / "all_listings_gold.xlsx"
+LISTINGS_GOLD_COMBINED = DATA_DIR_GOLD / "all_listings_gold_combined.xlsx"
 
 # Model file paths
 MODEL_CATBOOST = MODELS_DIR / "catboost_price_model.cbm"
@@ -100,9 +101,9 @@ MODEL_CONFIG = {
         'cv': 5
     },
     'elasticnet': {
-        'alpha': 1.0,
-        'l1_ratio': 0.5,
-        'max_iter': 10000
+        'alpha': 5e-05,
+        'l1_ratio': 0.655,
+        'max_iter': 20000
     }
 }
 
