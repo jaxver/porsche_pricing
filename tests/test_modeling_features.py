@@ -39,12 +39,13 @@ def test_select_model_columns_includes_richer_existing_gold_columns():
             "Drive": ["RWD"],
             "Ready to drive": ["Yes"],
             "Car location": ["Germany"],
+            "price_inflation_factor": [1.0],
         }
     )
 
     selected = select_model_columns(df)
 
-    assert selected.numeric == ("Mileage_km", "log_mileage", "Mileage_sq")
+    assert selected.numeric == ("Mileage_km", "log_mileage", "Mileage_sq", "price_inflation_factor")
     assert selected.categorical == (
         "Transmission",
         "Drive",

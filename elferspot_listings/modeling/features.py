@@ -15,6 +15,7 @@ NUMERIC_ALLOWLIST = (
     "Paint-to-Sample (PTS)",
     "log_mileage",
     "Mileage_sq",
+    "price_inflation_factor",
 )
 
 CATEGORICAL_ALLOWLIST = (
@@ -59,9 +60,9 @@ def build_feature_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, Sele
         raise ValueError("No supported features found in DataFrame")
 
     modeled = df.dropna(subset=[TARGET_COLUMN]).copy()
-    X = modeled[selected.features].copy()
+    X = modeled.loc[:, list(selected.features)].copy()
     for col in selected.categorical:
         if col in X.columns:
-            X[col] = X[col].fillna("Unknown")
+            X.loc[:, col] = X[col].fillna("Unknown")
     y = modeled[TARGET_COLUMN].astype(float)
-    return X, y, selected
+    return X, y, selected  # type: ignore[return-value]

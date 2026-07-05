@@ -205,6 +205,25 @@ def prepare_modeling_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_price_inflation_feature(df: pd.DataFrame, annual_rate: float = 0.02) -> pd.DataFrame:
+    """Add an inflation multiplier based on how old the scrape is within the dataset."""
+    df = df.copy()
+    if "Scraped_At" not in df.columns:
+        df["price_inflation_factor"] = 1.0
+        return df
+
+    scrape_dates = pd.to_datetime(df["Scraped_At"], errors="coerce")
+    latest_scrape = scrape_dates.max()
+    if pd.isna(latest_scrape):
+        df["price_inflation_factor"] = 1.0
+        return df
+
+    days_since_scrape = (latest_scrape - scrape_dates).dt.total_seconds() / 86400.0
+    df["price_inflation_factor"] = (1.0 + annual_rate) ** (days_since_scrape / 365.25)
+    df["price_inflation_factor"] = df["price_inflation_factor"].fillna(1.0)
+    return df
+
+
 def process_silver_to_gold(
     silver_path: Path,
     gold_path: Path,
@@ -241,6 +260,7 @@ def process_silver_to_gold(
     
     # Apply transformations
     df = create_log_features(df)
+    df = add_price_inflation_feature(df)
     df = create_model_categories(df)
     df = calculate_listing_score(df)
     df = prepare_modeling_features(df)
