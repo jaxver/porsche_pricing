@@ -33,8 +33,8 @@ MODEL_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     (r"\b(turbo s|turbo|930)\b", "Turbo S / Turbo"),
     (r"\b(gts)\b", "GTS"),
     (r"\b(911\s+s\b|911\s+sc\b|carrera 3\.0|carrera 3,0|carrera 3\.2|carrera 3,2|911 sc|super carrera|carrera s|carrera 4s)\b", "Carrera 3.0/3.2 / S / SC"),
-    (r"\b(912\b|911\b|911 t\b|911 l\b|911 e\b|911 targa\b|carrera\b|carrera 2\b|cabriolet|targa|coupe|convertible)\b", "Base Carrera / Targa / 912"),
     (r"\b(boxster|cayman|718|981|982|987)\b", "718"),
+    (r"\b(912\b|911\b|911 t\b|911 l\b|911 e\b|911 targa\b|carrera\b|carrera 2\b|cabriolet|targa|coupe|convertible)\b", "Base Carrera / Targa / 912"),
 )
 
 MODEL_CATEGORY_ORDER: tuple[str, ...] = (

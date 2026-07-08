@@ -95,6 +95,14 @@ def test_create_model_categories_preserves_legacy_edge_cases():
     ]
 
 
+def test_create_model_categories_prioritizes_718_before_generic_body_styles():
+    df = pd.DataFrame({"Model": ["Porsche Boxster Cabriolet", "Porsche Cayman Coupe"]})
+
+    result = create_model_categories(df)
+
+    assert result["model_category"].tolist() == ["718", "718"]
+
+
 def test_calculate_listing_score_uses_available_quality_fields():
     df = pd.DataFrame(
         {
