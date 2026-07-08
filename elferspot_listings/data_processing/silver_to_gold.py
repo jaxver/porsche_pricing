@@ -166,6 +166,35 @@ def add_legacy_model_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def add_legacy_binary_flags(df: pd.DataFrame) -> pd.DataFrame:
+    """Add legacy normalized binary features used by historical modeling notebooks."""
+    result = df.copy()
+
+    if "Ready to drive" in result.columns:
+        ready = result["Ready to drive"]
+    else:
+        ready = pd.Series("", index=result.index)
+
+    if "Drive" in result.columns:
+        drive = result["Drive"]
+    else:
+        drive = pd.Series("", index=result.index)
+
+    if "Matching numbers" in result.columns:
+        matching = result["Matching numbers"]
+    else:
+        matching = pd.Series("", index=result.index)
+
+    ready = ready.fillna("").astype(str).str.strip().str.lower()
+    drive = drive.fillna("").astype(str).str.strip().str.lower()
+    matching = matching.fillna("").astype(str).str.strip().str.lower()
+
+    result["state_yes"] = ready.isin({"yes", "y", "true", "1"}).astype(int)
+    result["state_Rear drive"] = drive.str.contains(r"\b(?:rear|rwd)\b", regex=True).astype(int)
+    result["matching_yes"] = matching.str.contains(r"\b(?:yes|matching numbers|numbers matching|matching drivetrain)\b", regex=True).astype(int)
+    return result
+
+
 def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate a quality score for each listing based on completeness
@@ -329,6 +358,7 @@ def process_silver_to_gold(
     df = create_model_categories(df)
     df = add_legacy_model_interaction_features(df)
     df = calculate_listing_score(df)
+    df = add_legacy_binary_flags(df)
     df = prepare_modeling_features(df)
     
     # Save gold data

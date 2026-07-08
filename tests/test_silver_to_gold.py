@@ -6,6 +6,7 @@ from elferspot_listings.data_processing.silver_to_gold import (
     create_log_features,
     create_model_categories,
     add_legacy_model_interaction_features,
+    add_legacy_binary_flags,
     remove_outliers,
     prepare_modeling_features,
 )
@@ -144,6 +145,22 @@ def test_add_legacy_model_interaction_features_handles_missing_mileage():
     assert pd.isna(result.loc[0, "Mileage_model_cat"])
     assert pd.isna(result.loc[0, "inv_Mileage_model_cat"])
     assert pd.isna(result.loc[0, "Mileage_sq_model_cat"])
+
+
+def test_add_legacy_binary_flags_normalizes_ready_drive_and_matching_numbers():
+    df = pd.DataFrame(
+        {
+            "Ready to drive": ["Yes", "no", ""],
+            "Drive": ["Rear drive", "All wheel drive", "RWD"],
+            "Matching numbers": ["Yes", "Unknown", "matching numbers"],
+        }
+    )
+
+    result = add_legacy_binary_flags(df)
+
+    assert result["state_yes"].tolist() == [1, 0, 0]
+    assert result["state_Rear drive"].tolist() == [1, 0, 1]
+    assert result["matching_yes"].tolist() == [1, 0, 1]
 
 
 def test_create_model_categories_prioritizes_718_before_generic_body_styles():
