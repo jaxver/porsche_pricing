@@ -420,7 +420,7 @@ def test_train_baseline_models_skips_catboost_when_unavailable(tmp_path, monkeyp
     result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=True)
 
     assert result.skipped_models["catboost"] == "catboost is not installed"
-    assert set(result.metrics) == {"median", "ridge", "elasticnet", "high_price_specialist"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "high_price_specialist", "stacked_ensemble"}
     assert not (tmp_path / "artifacts" / "catboost.cbm").exists()
 
 

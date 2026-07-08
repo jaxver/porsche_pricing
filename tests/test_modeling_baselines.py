@@ -4,11 +4,13 @@ import types
 import pytest
 import pandas as pd
 import numpy as np
+from sklearn.dummy import DummyRegressor
 from sklearn.utils import Tags
 from sklearn.utils._tags import TargetTags
 
 from elferspot_listings.modeling.baselines import (
     build_high_price_specialist_pipeline,
+    build_stacked_ensemble_pipeline,
     MedianRegressor,
     build_elasticnet_pipeline,
     build_perpetual_pipeline,
@@ -282,6 +284,52 @@ def test_high_price_specialist_pipeline_uses_specialist_when_training_split_is_a
     model.classifier_ = None
 
     assert model.predict(X).tolist() == [9000.0] * len(X)
+
+
+def test_stacked_ensemble_pipeline_fits_and_predicts_positive_values():
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km", "Year of construction"),
+        categorical=("model_category",),
+        text=("Description",),
+    )
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000, 25000, None, 40000, 15000, 50000],
+            "Year of construction": [1995, 2000, 1988, 2010, 2004, 2014],
+            "model_category": ["911", "Cayenne", "Boxster", "Targa", "964", "992"],
+            "Description": ["Sport Classic one of 30", "Standard car", None, "RS Tuning Cup S", "GT3 RS", "Carrera T"],
+        }
+    )
+    y = [120000, 150000, 260000, 340000, 310000, 420000]
+
+    model = build_stacked_ensemble_pipeline(selected)
+    model.fit(X, y)
+    predictions = model.predict(X)
+
+    assert len(predictions) == len(X)
+    assert np.isfinite(predictions).all()
+    assert (predictions > 0).all()
+
+
+def test_stacked_ensemble_pipeline_uses_out_of_fold_predictions(monkeypatch):
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+    )
+    X = pd.DataFrame({"Mileage_km": [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000]})
+    y = [100000, 120000, 140000, 160000, 180000, 200000, 220000, 240000]
+
+    monkeypatch.setattr("elferspot_listings.modeling.baselines.build_ridge_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
+    monkeypatch.setattr("elferspot_listings.modeling.baselines.build_elasticnet_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
+    monkeypatch.setattr("elferspot_listings.modeling.baselines.build_high_price_specialist_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
+
+    model = build_stacked_ensemble_pipeline(selected, random_state=42)
+    model.fit(X, y)
+
+    assert model.oof_predictions_.shape == (len(X), 3)
+    assert len(np.unique(model.oof_predictions_[:, 0])) > 1
 
 
 def test_elasticnet_pipeline_uses_ridge_preprocessing_and_predicts_positive_eur_scale_values():

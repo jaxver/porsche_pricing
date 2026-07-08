@@ -11,7 +11,21 @@ import pandas as pd
 from .train import train_baseline_models
 
 
-MODEL_CHOICES = ["median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "xgboost", "perpetual", "catboost", "tabpfn", "tabfm", "autogluon", "all"]
+MODEL_CHOICES = [
+    "median",
+    "ridge",
+    "elasticnet",
+    "skrub_ridge",
+    "high_price_specialist",
+    "stacked_ensemble",
+    "xgboost",
+    "perpetual",
+    "catboost",
+    "tabpfn",
+    "tabfm",
+    "autogluon",
+    "all",
+]
 
 
 def _parse_autogluon_dynamic_stacking(value: str) -> bool | None:

@@ -23,6 +23,7 @@ from .baselines import (
     build_high_price_specialist_pipeline,
     build_elasticnet_pipeline,
     build_perpetual_pipeline,
+    build_stacked_ensemble_pipeline,
     build_ridge_pipeline,
     build_skrub_ridge_pipeline,
     build_xgboost_pipeline,
@@ -88,6 +89,7 @@ SUPPORTED_MODEL_NAMES = {
     "elasticnet",
     "skrub_ridge",
     "high_price_specialist",
+    "stacked_ensemble",
     "xgboost",
     "perpetual",
     "catboost",
@@ -96,7 +98,7 @@ SUPPORTED_MODEL_NAMES = {
     "autogluon",
     "all",
 }
-DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist")
+DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "stacked_ensemble")
 
 
 def tune_elasticnet_params(
@@ -285,7 +287,7 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
 
 
 def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
-    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge", "perpetual", "high_price_specialist"):
+    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge", "perpetual", "high_price_specialist", "stacked_ensemble"):
         if model_name in saved_models:
             continue
         artifact_path = artifacts_dir / f"{model_name}.skops"
@@ -500,6 +502,17 @@ def train_baseline_models(
             metrics["high_price_specialist"] = model_metrics
             prediction_frames.append(model_predictions)
             baseline_artifact_models["high_price_specialist"] = high_price_specialist_model
+
+    if _should_run_model(requested_models, "stacked_ensemble", legacy_enabled=False):
+        with _ModelRunLogger("stacked_ensemble", verbose=verbose) as model_log:
+            model_log.step("build")
+            stacked_ensemble_model = build_stacked_ensemble_pipeline(selected, random_state=random_state)
+            model_log.step("fit and score")
+            model_predictions, model_metrics = _score_model(stacked_ensemble_model, X_train, y_train, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="stacked_ensemble")
+            metrics["stacked_ensemble"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["stacked_ensemble"] = stacked_ensemble_model
 
     if _should_run_model(requested_models, "xgboost", legacy_enabled=run_xgboost):
         try:
