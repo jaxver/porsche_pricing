@@ -54,6 +54,45 @@ def test_select_model_columns_includes_richer_existing_gold_columns():
     )
 
 
+def test_select_model_columns_includes_restored_legacy_numeric_features():
+    df = pd.DataFrame(
+        {
+            TARGET_COLUMN: [100000],
+            "model_cat_ordered": [1],
+            "inv_mileage": [0.0001],
+            "Mileage_model_cat": [10000.0],
+            "inv_Mileage_model_cat": [0.0001],
+            "Mileage_sq_model_cat": [100000000.0],
+            "is_rare": [1],
+            "is_restomod": [0],
+            "is_race_ready": [0],
+            "restoration_full": [1],
+            "has_docs": [1],
+            "state_yes": [1],
+            "state_Rear drive": [1],
+            "matching_yes": [1],
+        }
+    )
+
+    selected = select_model_columns(df)
+
+    assert selected.numeric == (
+        "model_cat_ordered",
+        "inv_mileage",
+        "Mileage_model_cat",
+        "inv_Mileage_model_cat",
+        "Mileage_sq_model_cat",
+        "is_rare",
+        "is_restomod",
+        "is_race_ready",
+        "restoration_full",
+        "has_docs",
+        "state_yes",
+        "state_Rear drive",
+        "matching_yes",
+    )
+
+
 def test_selected_columns_fields_are_immutable_tuples():
     selected = select_model_columns(
         pd.DataFrame(
