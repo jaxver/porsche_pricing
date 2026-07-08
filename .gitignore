@@ -5,6 +5,7 @@
 /Archive/
 /changelogs/
 /logs/
+*.log
 catboost_info/
 best.txt
 /scripts/__pycache__/
