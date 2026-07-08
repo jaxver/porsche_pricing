@@ -71,6 +71,30 @@ def test_create_model_categories_prefers_specific_match_over_generic_911():
     assert result["model_category"].tolist() == ["RS Model", "Base Carrera / Targa / 912"]
 
 
+def test_create_model_categories_preserves_legacy_edge_cases():
+    df = pd.DataFrame(
+        {
+            "Model": [
+                "Porsche 911 S",
+                "Porsche 911 SC",
+                "Porsche 911 RSR",
+                "Porsche GT2 RSR",
+                "Porsche Carrera GT",
+            ]
+        }
+    )
+
+    result = create_model_categories(df)
+
+    assert result["model_category"].tolist() == [
+        "Carrera 3.0/3.2 / S / SC",
+        "Carrera 3.0/3.2 / S / SC",
+        "GT2RS and RARE Models",
+        "GT2RS and RARE Models",
+        "Bespoke / Rarest Models",
+    ]
+
+
 def test_calculate_listing_score_uses_available_quality_fields():
     df = pd.DataFrame(
         {

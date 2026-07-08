@@ -18,9 +18,9 @@ if str(PROJECT_ROOT) not in sys.path:
 logger = logging.getLogger(__name__)
 
 MODEL_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
-    (r"\b(singer|guntherwerks|gunther werks|lanzante)\b", "Bespoke / Rarest Models"),
+    (r"\b(singer|guntherwerks|gunther werks|lanzante|carrera gt)\b", "Bespoke / Rarest Models"),
     (
-        r"(gt2 rs|gt2rs|911 gt2 rs|sport classic|911 st\b|911 s[\s/]?t|60 (jahre|years|anniversary)|911 r\b|le mans centenaire edition|991 club coup[eé]|club coup[eé])",
+        r"(gt2 rs|gt2rs|911 gt2 rs|gt2 rsr|911 gt2 rsr|rsr|sport classic|911 st\b|911 s[\s/]?t|60 (jahre|years|anniversary)|911 r\b|le mans centenaire edition|991 club coup[eé]|club coup[eé])",
         "GT2RS and RARE Models",
     ),
     (r"\b(gt3 rs|gt3rs|911 gt3 rs|ruf|dakar|gt2 clubsport)\b", "GT3RS"),
@@ -32,7 +32,7 @@ MODEL_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     (r"\b(speedster|clubsport|heritage|backdate|restomod|modified|exclusive manufaktur)\b", "Special / Backdate"),
     (r"\b(turbo s|turbo|930)\b", "Turbo S / Turbo"),
     (r"\b(gts)\b", "GTS"),
-    (r"\b(carrera 3\.0|carrera 3,0|carrera 3\.2|carrera 3,2|911 sc|super carrera|carrera s|carrera 4s)\b", "Carrera 3.0/3.2 / S / SC"),
+    (r"\b(911\s+s\b|911\s+sc\b|carrera 3\.0|carrera 3,0|carrera 3\.2|carrera 3,2|911 sc|super carrera|carrera s|carrera 4s)\b", "Carrera 3.0/3.2 / S / SC"),
     (r"\b(912\b|911\b|911 t\b|911 l\b|911 e\b|911 targa\b|carrera\b|carrera 2\b|cabriolet|targa|coupe|convertible)\b", "Base Carrera / Targa / 912"),
     (r"\b(boxster|cayman|718|981|982|987)\b", "718"),
 )
