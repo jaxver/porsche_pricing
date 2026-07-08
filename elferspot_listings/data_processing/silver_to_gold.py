@@ -132,6 +132,40 @@ def create_model_categories(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def add_legacy_model_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ordered model category and mileage interaction features."""
+    logger.info("Adding legacy model interaction features")
+
+    result = df.copy()
+    if "model_category" not in result.columns:
+        result = create_model_categories(result)
+
+    categories = pd.Categorical(
+        result["model_category"],
+        categories=MODEL_CATEGORY_ORDER,
+        ordered=True,
+    )
+    ordered_codes = pd.Series(categories.codes, index=result.index)
+    ordered_codes = ordered_codes.where(ordered_codes != -1, len(MODEL_CATEGORY_ORDER) - 1)
+    result["model_cat_ordered"] = ordered_codes.astype(int)
+
+    mileage = (
+        pd.to_numeric(result["Mileage_km"], errors="coerce")
+        if "Mileage_km" in result.columns
+        else pd.Series(np.nan, index=result.index, dtype="float64")
+    )
+    if "Mileage_sq" in result.columns:
+        mileage_sq = pd.to_numeric(result["Mileage_sq"], errors="coerce")
+    else:
+        mileage_sq = mileage**2
+
+    result["inv_mileage"] = 1 / (mileage + 1)
+    result["Mileage_model_cat"] = mileage * result["model_cat_ordered"]
+    result["inv_Mileage_model_cat"] = result["inv_mileage"] * result["model_cat_ordered"]
+    result["Mileage_sq_model_cat"] = mileage_sq * result["model_cat_ordered"]
+    return result
+
+
 def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate a quality score for each listing based on completeness
@@ -293,6 +327,7 @@ def process_silver_to_gold(
     df = create_log_features(df)
     df = add_price_inflation_feature(df)
     df = create_model_categories(df)
+    df = add_legacy_model_interaction_features(df)
     df = calculate_listing_score(df)
     df = prepare_modeling_features(df)
     

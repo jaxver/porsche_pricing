@@ -5,6 +5,7 @@ from elferspot_listings.data_processing.silver_to_gold import (
     calculate_listing_score,
     create_log_features,
     create_model_categories,
+    add_legacy_model_interaction_features,
     remove_outliers,
     prepare_modeling_features,
 )
@@ -111,6 +112,38 @@ def test_create_model_categories_preserves_legacy_edge_cases():
         "GT2RS and RARE Models",
         "Bespoke / Rarest Models",
     ]
+
+
+def test_add_legacy_model_interaction_features_uses_ordered_category_code():
+    df = pd.DataFrame(
+        {
+            "Model": ["Porsche 911 Carrera", "Porsche 911 GT2 RS"],
+            "Mileage_km": [10000.0, 20000.0],
+        }
+    )
+    df = create_log_features(df)
+    df = create_model_categories(df)
+
+    result = add_legacy_model_interaction_features(df)
+
+    assert result["model_cat_ordered"].tolist() == [0, 8]
+    assert result["inv_mileage"].tolist() == [1 / 10001.0, 1 / 20001.0]
+    assert result["Mileage_model_cat"].tolist() == [0.0, 160000.0]
+    assert result["inv_Mileage_model_cat"].tolist() == [0.0, 8 / 20001.0]
+    assert result["Mileage_sq_model_cat"].tolist() == [0.0, (20000.0**2) * 8]
+
+
+def test_add_legacy_model_interaction_features_handles_missing_mileage():
+    df = pd.DataFrame({"Model": ["Unknown"], "Mileage_km": [pd.NA]})
+    df = create_model_categories(df)
+
+    result = add_legacy_model_interaction_features(df)
+
+    assert result["model_cat_ordered"].tolist() == [11]
+    assert pd.isna(result.loc[0, "inv_mileage"])
+    assert pd.isna(result.loc[0, "Mileage_model_cat"])
+    assert pd.isna(result.loc[0, "inv_Mileage_model_cat"])
+    assert pd.isna(result.loc[0, "Mileage_sq_model_cat"])
 
 
 def test_create_model_categories_prioritizes_718_before_generic_body_styles():
