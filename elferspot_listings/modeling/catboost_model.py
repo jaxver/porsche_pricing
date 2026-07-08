@@ -98,11 +98,13 @@ def fit_catboost_quantile_interval(
         model = CatBoostRegressor(**model_params)
         model.fit(train_pool)
         fitted[name] = model
+    fitted["_selected"] = selected
     return fitted
 
 
 def predict_catboost_interval_eur(interval_models: dict[str, Any], X) -> pd.DataFrame:
-    frame = pd.DataFrame(X).copy()
+    selected = interval_models.get("_selected")
+    frame = pd.DataFrame(X).copy() if selected is None else _prepare_catboost_frame(X, selected)[0]
     predictions = pd.DataFrame(index=frame.index)
     predictions["pred_lower"] = np.exp(np.asarray(interval_models["lower"].predict(frame), dtype=float))
     predictions["pred_price"] = np.exp(np.asarray(interval_models["median"].predict(frame), dtype=float))

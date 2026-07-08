@@ -18,7 +18,12 @@ from elferspot_listings.modeling.catboost_model import (
     save_catboost_model,
 )
 from elferspot_listings.modeling.features import SelectedColumns
-from elferspot_listings.modeling.train import train_baseline_models
+
+
+def train_baseline_models(*args, **kwargs):
+    from elferspot_listings.modeling.train import train_baseline_models as _train_baseline_models
+
+    return _train_baseline_models(*args, **kwargs)
 
 
 def test_default_catboost_params_returns_reproducible_quiet_configuration():
@@ -88,44 +93,147 @@ def test_fit_catboost_regressor_uses_log_target_and_selected_categorical_columns
     np.testing.assert_allclose(predict_catboost_eur(model, X), [210000.0, 210000.0])
 
 
-def test_fit_catboost_quantile_interval_returns_eur_bounds():
-    pytest.importorskip("catboost")
+def test_fit_catboost_quantile_interval_prepares_categorical_inference_features(monkeypatch):
+    captured: dict[str, Any] = {"predict_frames": []}
+
+    class FakePool:
+        def __init__(self, data, label=None, cat_features=None):
+            captured["pool_data"] = data
+            captured["pool_label"] = label
+            captured["pool_cat_features"] = cat_features
+
+    class FakeCatBoostRegressor:
+        def __init__(self, **params):
+            captured.setdefault("params", []).append(params)
+            self.params = params
+
+        def fit(self, pool):
+            captured.setdefault("fit_pools", []).append(pool)
+            return self
+
+        def predict(self, X):
+            assert X["model_category"].tolist()[0] == "Unknown"
+            captured["predict_frames"].append(X.copy())
+            loss_function = self.params["loss_function"]
+            if loss_function == "Quantile:alpha=0.05":
+                return np.log(np.full(len(X), 90000.0))
+            if loss_function == "Quantile:alpha=0.5":
+                return np.log(np.full(len(X), 100000.0))
+            if loss_function == "Quantile:alpha=0.95":
+                return np.log(np.full(len(X), 110000.0))
+            raise AssertionError(loss_function)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "catboost",
+        SimpleNamespace(CatBoostRegressor=FakeCatBoostRegressor, Pool=FakePool),
+    )
 
     train = pd.DataFrame(
         {
-            "price_in_eur": [80000.0, 90000.0, 120000.0, 150000.0, 250000.0, 300000.0],
-            "Mileage_km": [90000.0, 70000.0, 50000.0, 30000.0, 15000.0, 10000.0],
-            "model_category": [
-                "Base Carrera / Targa / 912",
-                "Base Carrera / Targa / 912",
-                "GTS",
-                "Turbo S / Turbo",
-                "RS Model",
-                "GT2RS and RARE Models",
-            ],
+            "price_in_eur": [80000.0, 90000.0, 120000.0, 150000.0],
+            "Mileage_km": [90000.0, 70000.0, 50000.0, 30000.0],
+            "model_category": ["Base Carrera / Targa / 912", "GTS", "Turbo S / Turbo", "RS Model"],
         }
     )
-    selected = SelectedColumns(
-        target="price_in_eur",
-        numeric=("Mileage_km",),
-        categorical=("model_category",),
-    )
-    X = train[list(selected.features)]
-    y = train["price_in_eur"]
-
+    selected = SelectedColumns(target="price_in_eur", numeric=("Mileage_km",), categorical=("model_category",))
     interval = fit_catboost_quantile_interval(
-        X,
-        y,
+        train[list(selected.features)],
+        train["price_in_eur"],
         selected,
         random_state=42,
         params={"iterations": 5, "depth": 2, "learning_rate": 0.1, "allow_writing_files": False, "verbose": False},
     )
-    predictions = predict_catboost_interval_eur(interval, X)
 
+    predictions = predict_catboost_interval_eur(
+        interval,
+        pd.DataFrame({"Mileage_km": [12345.0, 54321.0], "model_category": [None, "Turbo S / Turbo"]}),
+    )
+
+    assert interval["_selected"] == selected
+    assert captured["pool_cat_features"] == [1]
+    assert [params["loss_function"] for params in captured["params"]] == [
+        "Quantile:alpha=0.05",
+        "Quantile:alpha=0.5",
+        "Quantile:alpha=0.95",
+    ]
     assert list(predictions.columns) == ["pred_lower", "pred_price", "pred_upper"]
-    assert len(predictions) == len(train)
+    assert len(predictions) == 2
     assert (predictions["pred_lower"] <= predictions["pred_price"]).all()
     assert (predictions["pred_price"] <= predictions["pred_upper"]).all()
+
+
+def test_predict_catboost_interval_eur_handles_missing_categorical_values(monkeypatch):
+    captured: dict[str, Any] = {"frames": []}
+
+    class FakeModel:
+        def __init__(self, offset: float):
+            self.offset = offset
+
+        def predict(self, X):
+            captured["frames"].append(X.copy())
+            assert X["model_category"].tolist()[0] == "Unknown"
+            return np.log(np.full(len(X), self.offset))
+
+    selected = SelectedColumns(target="price_in_eur", numeric=("Mileage_km",), categorical=("model_category",))
+    interval = {
+        "lower": FakeModel(90000.0),
+        "median": FakeModel(100000.0),
+        "upper": FakeModel(110000.0),
+        "_selected": selected,
+    }
+
+    predictions = predict_catboost_interval_eur(
+        interval,
+        pd.DataFrame({"Mileage_km": [12345.0, 54321.0], "model_category": [None, "Turbo S / Turbo"]}),
+    )
+
+    assert list(predictions.columns) == ["pred_lower", "pred_price", "pred_upper"]
+    assert len(predictions) == 2
+    assert len(captured["frames"]) == 3
+    assert (predictions["pred_lower"] <= predictions["pred_price"]).all()
+    assert (predictions["pred_price"] <= predictions["pred_upper"]).all()
+
+
+def test_fit_catboost_quantile_interval_uses_quantile_alpha_losses(monkeypatch):
+    captured: dict[str, Any] = {"params": []}
+
+    class FakePool:
+        def __init__(self, data, label=None, cat_features=None):
+            captured["pool_label"] = label
+            captured["pool_cat_features"] = cat_features
+
+    class FakeCatBoostRegressor:
+        def __init__(self, **params):
+            captured["params"].append(params)
+
+        def fit(self, pool):
+            captured.setdefault("fit_pools", []).append(pool)
+            return self
+
+    monkeypatch.setitem(
+        sys.modules,
+        "catboost",
+        SimpleNamespace(CatBoostRegressor=FakeCatBoostRegressor, Pool=FakePool),
+    )
+
+    train = pd.DataFrame(
+        {
+            "price_in_eur": [80000.0, 90000.0, 120000.0],
+            "Mileage_km": [90000.0, 70000.0, 50000.0],
+            "model_category": ["Base Carrera / Targa / 912", "GTS", "Turbo S / Turbo"],
+        }
+    )
+    selected = SelectedColumns(target="price_in_eur", numeric=("Mileage_km",), categorical=("model_category",))
+
+    fit_catboost_quantile_interval(train[list(selected.features)], train["price_in_eur"], selected)
+
+    assert [params["loss_function"] for params in captured["params"]] == [
+        "Quantile:alpha=0.05",
+        "Quantile:alpha=0.5",
+        "Quantile:alpha=0.95",
+    ]
+    assert captured["pool_cat_features"] == [1]
 
 
 def test_fit_catboost_regressor_merges_gpu_params_with_tuned_params(monkeypatch):
