@@ -1,3 +1,5 @@
+import pytest
+
 import numpy as np
 import pandas as pd
 
@@ -230,6 +232,102 @@ def test_calculate_listing_score_extracts_high_value_signals_from_all_listing_te
     assert result.loc[0, "is_rare"] == 1
     assert result.loc[0, "is_race_ready"] == 1
     assert result.loc[0, "listing_score"] > 15
+
+
+def test_calculate_listing_score_extracts_option_and_specialist_flags_from_combined_listing_text():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911 GT3 RS Weissach Package"],
+            "Model": ["992 GT3 RS"],
+            "Description": [
+                "PCCB ceramic brakes, bucket seats, Clubsport Package, front axle lift, Sport Chrono, manual transmission, Paint to Sample, Manthey, RUF, TechArt, carbon package, lightweight package, full leather, carbon bucket seats."
+            ],
+            "Secondary_Description": ["Optioned as a collector car."],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    expected_flags = [
+        "weissach_package",
+        "pccb",
+        "ceramic_brakes",
+        "bucket_seats",
+        "clubsport_package",
+        "front_axle_lift",
+        "sport_chrono",
+        "manual_transmission_text",
+        "paint_to_sample_text",
+        "manthey",
+        "ruf",
+        "techart",
+        "carbon_package",
+        "lightweight_package",
+        "full_leather",
+        "carbon_bucket_seats",
+    ]
+
+    assert result.loc[0, expected_flags].tolist() == [1] * len(expected_flags)
+
+
+@pytest.mark.parametrize(
+    ("description", "expected_flags"),
+    [
+        (
+            "Sport Chrono Package, 6-speed manual, front lift system, full leather interior, carbon fiber bucket seats.",
+            {
+                "sport_chrono": 1,
+                "manual_transmission_text": 1,
+                "front_axle_lift": 1,
+                "full_leather": 1,
+                "carbon_bucket_seats": 1,
+            },
+        ),
+        (
+            "Chrono package, manual gearbox, front axle lift system, extended leather package, carbon fibre bucket seats.",
+            {
+                "sport_chrono": 1,
+                "manual_transmission_text": 1,
+                "front_axle_lift": 1,
+                "full_leather": 1,
+                "carbon_bucket_seats": 1,
+            },
+        ),
+    ],
+)
+def test_calculate_listing_score_matches_common_option_phrasing_variants(description, expected_flags):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    for flag, expected in expected_flags.items():
+        assert result.loc[0, flag] == expected
+
+
+def test_calculate_listing_score_does_not_overmatch_obvious_non_option_phrasing():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [
+                "Automatic transmission, owner's manual included, manual steering wheel, leather package, leather steering wheel, chrono watch, generic lift system, and carbon trim."
+            ],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "manual_transmission_text"] == 0
+    assert result.loc[0, "full_leather"] == 0
+    assert result.loc[0, "front_axle_lift"] == 0
+    assert result.loc[0, "sport_chrono"] == 0
+    assert result.loc[0, "carbon_bucket_seats"] == 0
 
 
 def test_prepare_modeling_features_coerces_numeric_and_fills_colors():

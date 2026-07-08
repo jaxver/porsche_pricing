@@ -41,6 +41,22 @@ LINEAR_NUMERIC_EXCLUDE = {
     "engine_transmission_rebuilt",
     "cup_clubsport",
     "heritage_special",
+    "weissach_package",
+    "pccb",
+    "ceramic_brakes",
+    "bucket_seats",
+    "clubsport_package",
+    "front_axle_lift",
+    "sport_chrono",
+    "manual_transmission_text",
+    "paint_to_sample_text",
+    "manthey",
+    "ruf",
+    "techart",
+    "carbon_package",
+    "lightweight_package",
+    "full_leather",
+    "carbon_bucket_seats",
 }
 
 
