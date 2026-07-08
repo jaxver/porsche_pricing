@@ -46,6 +46,14 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
             "ood",
             "--autogluon-time-limit",
             "33",
+            "--tabfm-n-estimators",
+            "8",
+            "--tabfm-batch-size",
+            "2",
+            "--tabfm-max-num-rows",
+            "2000",
+            "--tabfm-cv-folds",
+            "5",
         ]
     )
 
@@ -65,6 +73,10 @@ def test_cli_parses_arguments_and_prints_json(monkeypatch, capsys, tmp_path):
         "run_tabpfn": True,
         "run_tabfm": True,
         "run_perpetual": True,
+        "tabfm_n_estimators": 8,
+        "tabfm_batch_size": 2,
+        "tabfm_max_num_rows": 2000,
+        "tabfm_cv_folds": 5,
         "tabpfn_model_paths": ["mediumdata", "ood"],
         "tabpfn_backend": "local",
         "tabpfn_thinking": False,

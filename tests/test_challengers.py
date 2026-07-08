@@ -51,6 +51,7 @@ def _install_tabfm_test_doubles(
     load_file_error: Exception | None = None,
     to_error: Exception | None = None,
     fit_error: Exception | None = None,
+    available_virtual_memory_gb: float = 16.0,
 ) -> dict[str, object]:
     import tabfm  # type: ignore[import-not-found]
     import tabfm.src.pytorch.model as tabfm_model  # type: ignore[import-not-found]
@@ -77,8 +78,9 @@ def _install_tabfm_test_doubles(
             return self
 
     class FakeTabFMRegressor:
-        def __init__(self, model):
+        def __init__(self, model, **kwargs):
             captured["model"] = model
+            captured["regressor_kwargs"] = kwargs
 
         def fit(self, X_train, y_train):
             if fit_error is not None:
@@ -110,6 +112,10 @@ def _install_tabfm_test_doubles(
     monkeypatch.setattr(tabfm, "TabFMRegressor", FakeTabFMRegressor)
     monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
     monkeypatch.setattr("safetensors.torch.load_file", fake_load_file)
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.challengers._detect_tabfm_available_virtual_memory_gb",
+        lambda: available_virtual_memory_gb,
+    )
     return captured
 
 
@@ -163,6 +169,12 @@ def test_run_tabfm_regression_loads_safetensors_checkpoint_and_moves_to_gpu(monk
     assert cast(dict, captured["config"])["is_classifier"] is False
     assert captured["state_dict"] == {"fake_weight": 1.0}
     assert captured["device"] == "cuda"
+    assert captured["regressor_kwargs"] == {
+        "n_estimators": 4,
+        "batch_size": 4,
+        "max_num_rows": 1000,
+        "num_folds_for_cv": 3,
+    }
     assert captured["eval"] is True
     assert captured["fit_shape"] == (2, 2)
     assert captured["predict_index"] == [0]
@@ -172,6 +184,50 @@ def test_run_tabfm_regression_loads_safetensors_checkpoint_and_moves_to_gpu(monk
     assert metadata["backend"] == "pytorch"
     assert metadata["runtime_seconds"] >= 0
     assert "safetensors" in metadata["notes"].lower()
+
+
+def test_run_tabfm_regression_allows_explicit_runtime_overrides(monkeypatch):
+    from elferspot_listings.modeling.challengers import run_tabfm_regression
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        captured = _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir)
+
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
+
+        run_tabfm_regression(
+            X_train,
+            y_train,
+            X_test,
+            n_estimators=8,
+            batch_size=2,
+            max_num_rows=2000,
+            num_folds_for_cv=5,
+        )
+
+    assert captured["regressor_kwargs"] == {
+        "n_estimators": 8,
+        "batch_size": 2,
+        "max_num_rows": 2000,
+        "num_folds_for_cv": 5,
+    }
+
+
+def test_run_tabfm_regression_skips_when_virtual_memory_headroom_is_too_low(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabfm_regression
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snapshot_dir = _write_tabfm_snapshot(Path(tmpdir))
+        _install_tabfm_test_doubles(monkeypatch, snapshot_dir=snapshot_dir, available_virtual_memory_gb=1.0)
+
+        X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+        y_train = pd.Series([10.0, 20.0])
+        X_test = pd.DataFrame({"feature": [3.0]})
+
+        with pytest.raises(OptionalDependencyNotInstalledError, match=r"virtual memory|page file|TabFM"):
+            run_tabfm_regression(X_train, y_train, X_test, device="gpu")
 
 
 def test_run_tabfm_regression_raises_helpful_error_when_dependency_is_missing():
@@ -814,6 +870,32 @@ def test_run_tabpfn_client_regression_converts_network_quota_service_failures_to
     X_test = pd.DataFrame({"feature": [3.0]})
 
     with pytest.raises(OptionalDependencyNotInstalledError, match=r"tabpfn-client|Prior Labs|access token|API access"):
+        run_tabpfn_client_regression(X_train, y_train, X_test)
+
+
+def test_run_tabpfn_client_regression_converts_no_models_fitted_service_failure_to_optional_dependency_error(monkeypatch):
+    from elferspot_listings.modeling.challengers import OptionalDependencyNotInstalledError, run_tabpfn_client_regression
+
+    class FakeTabPFNRegressor:
+        def __init__(self, **kwargs):
+            pass
+
+        def fit(self, X_train, y_train):
+            raise RuntimeError("No models were trained successfully during fit().")
+
+        def predict(self, X_test):
+            return pd.Series([321.0], index=X_test.index)
+
+    fake_client = types.ModuleType("tabpfn_client")
+    fake_client.TabPFNRegressor = FakeTabPFNRegressor
+    fake_client.init = lambda: None
+    monkeypatch.setitem(sys.modules, "tabpfn_client", fake_client)
+
+    X_train = pd.DataFrame({"feature": [1.0, 2.0]})
+    y_train = pd.Series([10.0, 20.0])
+    X_test = pd.DataFrame({"feature": [3.0]})
+
+    with pytest.raises(OptionalDependencyNotInstalledError, match=r"tabpfn-client|No models were trained successfully|service"):
         run_tabpfn_client_regression(X_train, y_train, X_test)
 
 

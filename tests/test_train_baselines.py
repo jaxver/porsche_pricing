@@ -37,6 +37,10 @@ def _expected_holdout_indices(frame: pd.DataFrame) -> list[int]:
     return list(test_index)
 
 
+def test_benchmark_db_is_redirected_to_test_temp_dir(tmp_path):
+    assert Path(config.BENCHMARK_DB).is_relative_to(tmp_path)
+
+
 def test_train_baseline_models_with_ridge_only_runs_ridge(tmp_path, monkeypatch):
     monkeypatch.setattr("elferspot_listings.modeling.train.MedianRegressor", lambda: (_ for _ in ()).throw(AssertionError("median should not run")))
     monkeypatch.setattr("elferspot_listings.modeling.train.build_elasticnet_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("elasticnet should not run")))
@@ -144,6 +148,47 @@ def test_train_baseline_models_records_missing_perpetual_skip_and_continues(tmp_
 
     assert "perpetual" not in result.metrics
     assert result.skipped_models.get("perpetual") == "perpetual is not installed"
+
+
+def test_train_baseline_models_records_catboost_training_failure_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.fit_catboost_regressor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("catboost GPU memory exhausted")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, train_catboost=True)
+
+    assert "catboost" not in result.metrics
+    assert result.skipped_models.get("catboost") == "catboost GPU memory exhausted"
+
+
+def test_train_baseline_models_attempts_catboost_before_heavy_optionals(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    order: list[str] = []
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.fit_catboost_regressor",
+        lambda *_args, **_kwargs: (order.append("catboost"), (_ for _ in ()).throw(RuntimeError("skip catboost")))[1],
+    )
+
+    def fake_tabfm(X_train, y_train, X_test, **_kwargs):
+        order.append("tabfm")
+        return object(), pd.Series([777.0] * len(X_test), index=X_test.index), {"model_name": "tabfm"}
+
+    def fake_autogluon(_train_df, test_df, *_args, **_kwargs):
+        order.append("autogluon")
+        return object(), pd.Series([888.0] * len(test_df), index=test_df.index), {}, {}
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
+
+    train_baseline_models(gold_df, tmp_path, random_state=42, models=["catboost", "tabfm", "autogluon"])
+
+    assert order == ["catboost", "tabfm", "autogluon"]
 
 
 def test_train_baseline_models_with_only_missing_perpetual_writes_empty_outputs(tmp_path, monkeypatch):
@@ -482,16 +527,32 @@ def test_train_baseline_models_records_missing_tabfm_skip_and_continues(tmp_path
     assert result.skipped_models.get("tabfm") == 'Install TabFM with `python -m pip install -e ".[advanced]"`.'
 
 
+def test_train_baseline_models_records_autogluon_training_failure_and_continues(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr(
+        "elferspot_listings.modeling.train.run_autogluon_regression",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("Learner is already fit.")),
+    )
+
+    result = train_baseline_models(gold_df, tmp_path, random_state=42, run_autogluon=True)
+
+    assert "autogluon" not in result.metrics
+    assert result.skipped_models.get("autogluon") == "Learner is already fit."
+
+
 def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, monkeypatch):
     gold_df = _gold_frame()
 
     captured = {}
 
-    def fake_tabfm(X_train, y_train, X_test, random_state=42, device="cpu"):
+    def fake_tabfm(X_train, y_train, X_test, random_state=42, device="cpu", **kwargs):
         captured["X_train"] = X_train.copy()
         captured["X_test"] = X_test.copy()
         captured["random_state"] = random_state
         captured["device"] = device
+        captured["tabfm_kwargs"] = kwargs
         return object(), pd.Series([444.0] * len(X_test), index=X_test.index), {
             "model_name": "tabfm",
             "backend": "pytorch",
@@ -511,8 +572,42 @@ def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, 
     )
     assert captured["random_state"] == 42
     assert captured["device"] == "cpu"
+    assert captured["tabfm_kwargs"] == {}
     assert not captured["X_train"].isna().any().any()
     assert not captured["X_test"].isna().any().any()
+
+
+def test_train_baseline_models_forwards_tabfm_runtime_overrides(tmp_path, monkeypatch):
+    gold_df = _gold_frame()
+    captured = {}
+
+    def fake_tabfm(_X_train, _y_train, X_test, **kwargs):
+        captured.update(kwargs)
+        return object(), pd.Series([444.0] * len(X_test), index=X_test.index), {
+            "model_name": "tabfm",
+            "backend": "pytorch",
+            "runtime_seconds": 0.0,
+            "notes": "fake tabfm note",
+        }
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_skrub_ridge_pipeline", lambda _selected: MedianRegressor())
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+
+    train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=42,
+        run_tabfm=True,
+        tabfm_n_estimators=8,
+        tabfm_batch_size=2,
+        tabfm_max_num_rows=2000,
+        tabfm_cv_folds=5,
+    )
+
+    assert captured["n_estimators"] == 8
+    assert captured["batch_size"] == 2
+    assert captured["max_num_rows"] == 2000
+    assert captured["num_folds_for_cv"] == 5
 
 
 def test_train_baseline_models_emits_verbose_step_and_heartbeat_logs(tmp_path, monkeypatch, caplog):

@@ -365,6 +365,10 @@ def train_baseline_models(
     run_perpetual: bool = False,
     run_tabpfn: bool = False,
     run_tabfm: bool = False,
+    tabfm_n_estimators: int | None = None,
+    tabfm_batch_size: int | None = None,
+    tabfm_max_num_rows: int | None = None,
+    tabfm_cv_folds: int | None = None,
     tabpfn_model_paths: list[str | None] | None = None,
     tabpfn_backend: str = "local",
     tabpfn_thinking: bool = False,
@@ -500,6 +504,42 @@ def train_baseline_models(
         except ImportError:
             skipped_models["perpetual"] = "perpetual is not installed"
 
+    if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost):
+        try:
+            catboost_params = None
+            if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost) and tune_catboost:
+                with _ModelRunLogger("catboost_tuning", verbose=verbose) as model_log:
+                    model_log.step("search")
+                    catboost_params = tune_catboost_params(
+                        X_train,
+                        y_train,
+                        selected,
+                        random_state=random_state,
+                        n_trials=tuning_trials,
+                        **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                    )
+            with _ModelRunLogger("catboost", verbose=verbose) as model_log:
+                model_log.step("fit and score")
+                catboost_model = fit_catboost_regressor(
+                    X_train,
+                    y_train,
+                    selected,
+                    random_state=random_state,
+                    params=catboost_params,
+                    **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
+                )
+        except ImportError:
+            skipped_models["catboost"] = "catboost is not installed"
+        except Exception as exc:
+            skipped_models["catboost"] = str(exc)
+        else:
+            model_predictions, model_metrics = _score_catboost_model(catboost_model, X_test, y_test)
+            model_predictions = model_predictions.assign(model_name="catboost")
+            metrics["catboost"] = model_metrics
+            prediction_frames.append(model_predictions)
+            save_catboost_model(catboost_model, catboost_artifact_path)
+            catboost_trained = True
+
     tabpfn_ran = False
     tabfm_ran = False
     if should_run_tabpfn and tabpfn_backend == "client":
@@ -558,6 +598,16 @@ def train_baseline_models(
 
     should_run_tabfm = _should_run_model(requested_models, "tabfm", legacy_enabled=run_tabfm)
     if should_run_tabfm:
+        tabfm_kwargs = {
+            key: value
+            for key, value in {
+                "n_estimators": tabfm_n_estimators,
+                "batch_size": tabfm_batch_size,
+                "max_num_rows": tabfm_max_num_rows,
+                "num_folds_for_cv": tabfm_cv_folds,
+            }.items()
+            if value is not None
+        }
         try:
             with _ModelRunLogger("tabfm", verbose=verbose) as model_log:
                 model_log.step("fit and score")
@@ -567,6 +617,7 @@ def train_baseline_models(
                     X_test,
                     random_state=random_state,
                     device=device,
+                    **tabfm_kwargs,
                 )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["tabfm"] = str(exc)
@@ -599,44 +650,12 @@ def train_baseline_models(
                 )
         except OptionalDependencyNotInstalledError as exc:
             skipped_models["autogluon"] = str(exc)
+        except Exception as exc:
+            skipped_models["autogluon"] = str(exc)
         else:
             model_predictions, model_metrics = _score_predictions("autogluon", y_test, autogluon_predictions)
             metrics["autogluon"] = model_metrics
             prediction_frames.append(model_predictions)
-
-    if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost):
-        try:
-            catboost_params = None
-            if _should_run_model(requested_models, "catboost", legacy_enabled=train_catboost) and tune_catboost:
-                with _ModelRunLogger("catboost_tuning", verbose=verbose) as model_log:
-                    model_log.step("search")
-                    catboost_params = tune_catboost_params(
-                        X_train,
-                        y_train,
-                        selected,
-                        random_state=random_state,
-                        n_trials=tuning_trials,
-                        **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
-                    )
-            with _ModelRunLogger("catboost", verbose=verbose) as model_log:
-                model_log.step("fit and score")
-                catboost_model = fit_catboost_regressor(
-                    X_train,
-                    y_train,
-                    selected,
-                    random_state=random_state,
-                    params=catboost_params,
-                    **({"device": device, "gpu_devices": gpu_devices} if device == "gpu" else {}),
-                )
-        except ImportError:
-            skipped_models["catboost"] = "catboost is not installed"
-        else:
-            model_predictions, model_metrics = _score_catboost_model(catboost_model, X_test, y_test)
-            model_predictions = model_predictions.assign(model_name="catboost")
-            metrics["catboost"] = model_metrics
-            prediction_frames.append(model_predictions)
-            save_catboost_model(catboost_model, catboost_artifact_path)
-            catboost_trained = True
 
     if not catboost_trained and catboost_artifact_path.exists():
         catboost_artifact_path.unlink()

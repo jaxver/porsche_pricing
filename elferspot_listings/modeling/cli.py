@@ -80,6 +80,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="AutoGluon dynamic stacking mode.",
     )
     parser.add_argument("--autogluon-clean-output", action="store_true", help="Remove the AutoGluon artifact dir before fitting.")
+    parser.add_argument("--tabfm-n-estimators", type=int, default=None, help="Override TabFM ensemble count; default auto-sizes for benchmark runtime.")
+    parser.add_argument("--tabfm-batch-size", type=int, default=None, help="Override TabFM ensemble batch size; default auto-sizes for available capacity.")
+    parser.add_argument("--tabfm-max-num-rows", type=int, default=None, help="Override TabFM max in-context rows; use 0 for the library default/full rows.")
+    parser.add_argument("--tabfm-cv-folds", type=int, default=None, help="Override TabFM CV folds for ensemble weighting paths.")
     parser.add_argument("--include-optionals", action="store_true", help="Run optional models when used together with --model all.")
     return parser
 
@@ -111,6 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         "run_perpetual": include_optionals,
         "run_tabpfn": include_optionals,
         "run_tabfm": include_optionals,
+        "tabfm_n_estimators": args.tabfm_n_estimators,
+        "tabfm_batch_size": args.tabfm_batch_size,
+        "tabfm_max_num_rows": args.tabfm_max_num_rows,
+        "tabfm_cv_folds": args.tabfm_cv_folds,
         "tabpfn_model_paths": args.tabpfn_checkpoint,
         "tabpfn_backend": args.tabpfn_backend,
         "tabpfn_thinking": args.tabpfn_thinking,

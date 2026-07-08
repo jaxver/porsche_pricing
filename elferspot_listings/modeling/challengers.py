@@ -32,6 +32,13 @@ _TABFM_CUDA_UNAVAILABLE_GUIDANCE = (
     "local TabFM GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
     "or install a CUDA-enabled PyTorch build."
 )
+_TABFM_AUTO_DEFAULTS = {
+    "n_estimators": 4,
+    "batch_size": 4,
+    "max_num_rows": 1000,
+    "num_folds_for_cv": 3,
+}
+_TABFM_MIN_AVAILABLE_VIRTUAL_MEMORY_GB = 8.0
 _TABPFN_CUDA_UNAVAILABLE_GUIDANCE = (
     "local TabPFN GPU requested but CUDA is unavailable or Torch is not compiled with CUDA; rerun with `--device cpu` "
     "or install a CUDA-enabled PyTorch build."
@@ -164,6 +171,8 @@ def _is_tabpfn_client_access_failure(exc: BaseException) -> bool:
         "rate limit exceeded",
         "service unavailable",
         "network unreachable",
+        "no models were trained successfully",
+        "raise_on_no_models_fitted",
     )
     return any(marker in message for marker in plain_failure_markers) or (
         any(marker in message for marker in auth_markers) and any(marker in message for marker in access_markers)
@@ -222,6 +231,96 @@ def _is_tabfm_cuda_unavailable_failure(exc: BaseException) -> bool:
     )
 
 
+def _detect_tabfm_cuda_memory_gb(device: str) -> float | None:
+    if device != "gpu":
+        return None
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+    except Exception:
+        return None
+    return free_bytes / (1024**3)
+
+
+def _detect_tabfm_available_virtual_memory_gb() -> float | None:
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        memory_status = MEMORYSTATUSEX()
+        memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status)):
+            return None
+    except Exception:
+        return None
+    return memory_status.ullAvailPageFile / (1024**3)
+
+
+def _raise_if_tabfm_virtual_memory_is_low() -> None:
+    available_virtual_gb = _detect_tabfm_available_virtual_memory_gb()
+    if available_virtual_gb is None or available_virtual_gb >= _TABFM_MIN_AVAILABLE_VIRTUAL_MEMORY_GB:
+        return
+    message = (
+        "TabFM skipped before model load because available Windows virtual memory/page file headroom is too low "
+        f"({available_virtual_gb:.1f} GB available; need at least {_TABFM_MIN_AVAILABLE_VIRTUAL_MEMORY_GB:.1f} GB). "
+        "Close memory-heavy processes or increase the Windows paging file, then rerun."
+    )
+    raise _optional_dependency_error("TabFM", RuntimeError(message), message)
+
+
+def _auto_tabfm_runtime_config(n_train_rows: int, device: str) -> dict[str, int]:
+    available_gpu_gb = _detect_tabfm_cuda_memory_gb(device)
+    config = dict(_TABFM_AUTO_DEFAULTS)
+    if available_gpu_gb is not None:
+        if available_gpu_gb >= 24:
+            config.update({"n_estimators": 8, "batch_size": 4, "max_num_rows": 2000})
+        elif available_gpu_gb >= 16:
+            config.update({"n_estimators": 6, "batch_size": 3, "max_num_rows": 1500})
+
+    return config
+
+
+def _resolve_tabfm_runtime_config(
+    n_train_rows: int,
+    device: str,
+    n_estimators: int | None,
+    batch_size: int | None,
+    max_num_rows: int | None,
+    num_folds_for_cv: int | None,
+) -> dict[str, int | None]:
+    auto_config = _auto_tabfm_runtime_config(n_train_rows, device)
+    resolved: dict[str, int | None] = {
+        "n_estimators": n_estimators if n_estimators is not None else auto_config["n_estimators"],
+        "batch_size": batch_size if batch_size is not None else auto_config["batch_size"],
+        "max_num_rows": max_num_rows if max_num_rows is not None else auto_config["max_num_rows"],
+        "num_folds_for_cv": num_folds_for_cv if num_folds_for_cv is not None else auto_config["num_folds_for_cv"],
+    }
+    if resolved["max_num_rows"] is not None and resolved["max_num_rows"] <= 0:
+        resolved["max_num_rows"] = None
+    for key in ("n_estimators", "batch_size", "num_folds_for_cv"):
+        value = resolved[key]
+        if value is not None and value <= 0:
+            raise ValueError(f"{key} must be positive")
+    return resolved
+
+
 @contextlib.contextmanager
 def _temporarily_disable_huggingface_xet():
     previous_env_value = os.environ.get("HF_HUB_DISABLE_XET")
@@ -277,6 +376,7 @@ def _load_tabfm_regression_checkpoint(device: str = "cpu") -> object:
     if checkpoint_path is None:
         raise FileNotFoundError(f"Weights not found at: {snapshot_path}")
 
+    _raise_if_tabfm_virtual_memory_is_low()
     model_config = json.loads(config_path.read_text(encoding="utf-8"))
     model = TabFM(**model_config)
 
@@ -302,6 +402,10 @@ def run_tabfm_regression(
     X_test,
     random_state: int = 42,
     device: str = "cpu",
+    n_estimators: int | None = None,
+    batch_size: int | None = None,
+    max_num_rows: int | None = None,
+    num_folds_for_cv: int | None = None,
 ) -> tuple[object, pd.DataFrame, dict]:
     start = time.perf_counter()
     try:
@@ -315,7 +419,15 @@ def run_tabfm_regression(
             raise _optional_dependency_error("TabFM", exc, _TABFM_LOAD_GUIDANCE) from exc
         raise
 
-    model = TabFMRegressor(model=checkpoint)
+    runtime_config = _resolve_tabfm_runtime_config(
+        len(X_train),
+        device,
+        n_estimators=n_estimators,
+        batch_size=batch_size,
+        max_num_rows=max_num_rows,
+        num_folds_for_cv=num_folds_for_cv,
+    )
+    model = TabFMRegressor(model=checkpoint, **cast(Any, runtime_config))
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
 
@@ -325,7 +437,10 @@ def run_tabfm_regression(
         "model_name": "tabfm",
         "backend": "pytorch",
         "runtime_seconds": time.perf_counter() - start,
-        "notes": "Using the published TabFM PyTorch safetensors checkpoint. First run may download weights.",
+        "notes": (
+            "Using the published TabFM PyTorch safetensors checkpoint. First run may download weights. "
+            f"Runtime config: {runtime_config}."
+        ),
     }
     return model, prediction_frame, metadata
 
