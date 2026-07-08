@@ -20,6 +20,7 @@ from elferspot_listings.evaluation.reports import write_benchmark_report
 from . import benchmark_db
 from .baselines import (
     MedianRegressor,
+    build_high_price_specialist_pipeline,
     build_elasticnet_pipeline,
     build_perpetual_pipeline,
     build_ridge_pipeline,
@@ -86,6 +87,7 @@ SUPPORTED_MODEL_NAMES = {
     "ridge",
     "elasticnet",
     "skrub_ridge",
+    "high_price_specialist",
     "xgboost",
     "perpetual",
     "catboost",
@@ -94,7 +96,7 @@ SUPPORTED_MODEL_NAMES = {
     "autogluon",
     "all",
 }
-DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge")
+DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist")
 
 
 def tune_elasticnet_params(
@@ -283,7 +285,7 @@ def _save_sklearn_artifact(model_name: str, model: Any, artifacts_dir: Path, ski
 
 
 def _cleanup_stale_sklearn_artifacts(artifacts_dir: Path, saved_models: set[str]) -> None:
-    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge", "perpetual"):
+    for model_name in ("ridge", "elasticnet", "xgboost", "skrub_ridge", "perpetual", "high_price_specialist"):
         if model_name in saved_models:
             continue
         artifact_path = artifacts_dir / f"{model_name}.skops"
@@ -310,7 +312,7 @@ def _normalize_requested_models(models: list[str] | None) -> set[str] | None:
 
 def _should_run_model(requested_models: set[str] | None, model_name: str, legacy_enabled: bool) -> bool:
     if requested_models is None:
-        return legacy_enabled
+        return model_name in DEFAULT_MODEL_NAMES or legacy_enabled
     if "all" in requested_models:
         return model_name in DEFAULT_MODEL_NAMES or model_name in requested_models or legacy_enabled
     return model_name in requested_models
@@ -487,6 +489,17 @@ def train_baseline_models(
                 baseline_artifact_models["skrub_ridge"] = skrub_model
         except ImportError:
             skipped_models["skrub_ridge"] = "skrub is not installed"
+
+    if _should_run_model(requested_models, "high_price_specialist", legacy_enabled=False):
+        with _ModelRunLogger("high_price_specialist", verbose=verbose) as model_log:
+            model_log.step("build")
+            high_price_specialist_model = build_high_price_specialist_pipeline(selected, random_state=random_state)
+            model_log.step("fit and score")
+            model_predictions, model_metrics = _score_model(high_price_specialist_model, X_train_non_text, y_train, X_test_non_text, y_test)
+            model_predictions = model_predictions.assign(model_name="high_price_specialist")
+            metrics["high_price_specialist"] = model_metrics
+            prediction_frames.append(model_predictions)
+            baseline_artifact_models["high_price_specialist"] = high_price_specialist_model
 
     if _should_run_model(requested_models, "xgboost", legacy_enabled=run_xgboost):
         try:

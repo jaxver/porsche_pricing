@@ -6,10 +6,12 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 from .features import SelectedColumns
 
@@ -71,17 +73,157 @@ class MedianRegressor(BaseEstimator, RegressorMixin):
         return np.full(shape=len(X), fill_value=self.median_, dtype=float)
 
 
-def _build_feature_transformer(selected: SelectedColumns) -> ColumnTransformer:
+def _tabular_only_selected_columns(selected: SelectedColumns) -> SelectedColumns:
+    return SelectedColumns(
+        target=selected.target,
+        numeric=selected.numeric,
+        categorical=selected.categorical,
+    )
+
+
+class HighPriceSpecialistRegressor(BaseEstimator, RegressorMixin):
+    def __init__(
+        self,
+        selected: SelectedColumns,
+        high_price_threshold: float = 250_000.0,
+        routing_threshold: float = 0.5,
+        min_specialist_rows: int = 4,
+        random_state: int = 42,
+    ):
+        self.selected = selected
+        self.high_price_threshold = high_price_threshold
+        self.routing_threshold = routing_threshold
+        self.min_specialist_rows = min_specialist_rows
+        self.random_state = random_state
+
+    def _build_general_regressor(self) -> TransformedTargetRegressor:
+        selected = _tabular_only_selected_columns(self.selected)
+        model = Pipeline(
+            steps=[
+                (
+                    "features",
+                    _build_feature_transformer(
+                        selected,
+                        numeric_with_mean=False,
+                        categorical_sparse_output=True,
+                        sparse_threshold=1.0,
+                    ),
+                ),
+                ("ridge", Ridge(alpha=3.0)),
+            ]
+        )
+        return TransformedTargetRegressor(
+            regressor=model,
+            func=_positive_log_target,
+            inverse_func=_exp_target,
+        )
+
+    def _build_fallback_regressor(self) -> MedianRegressor:
+        return MedianRegressor()
+
+    def _build_classifier(self) -> Pipeline:
+        selected = _tabular_only_selected_columns(self.selected)
+        return Pipeline(
+            steps=[
+                (
+                    "features",
+                    _build_feature_transformer(
+                        selected,
+                        numeric_with_mean=False,
+                        categorical_sparse_output=True,
+                        sparse_threshold=1.0,
+                    ),
+                ),
+                (
+                    "logistic",
+                    LogisticRegression(
+                        class_weight="balanced",
+                        max_iter=1000,
+                        random_state=self.random_state,
+                    ),
+                ),
+            ]
+        )
+
+    def fit(self, X: Any, y: Any):
+        selected = _tabular_only_selected_columns(self.selected)
+        if not selected.non_text_features:
+            self.general_regressor_ = self._build_fallback_regressor()
+            self.general_regressor_.fit(X, y)
+            self.classifier_ = None
+            self.specialist_regressor_ = None
+            self.high_price_rows_ = int(np.count_nonzero(np.asarray(y, dtype=float).reshape(-1) >= float(self.high_price_threshold)))
+            return self
+
+        y_values = np.asarray(y, dtype=float).reshape(-1)
+        self.general_regressor_ = self._build_general_regressor()
+        self.general_regressor_.fit(X, y_values)
+
+        high_mask = y_values >= float(self.high_price_threshold)
+        self.high_price_rows_ = int(np.count_nonzero(high_mask))
+
+        if np.unique(high_mask.astype(int)).size > 1:
+            self.classifier_ = self._build_classifier()
+            self.classifier_.fit(X, high_mask.astype(int))
+        else:
+            self.classifier_ = None
+        self.all_training_rows_high_price_ = bool(high_mask.all())
+
+        if self.high_price_rows_ >= int(self.min_specialist_rows):
+            self.specialist_regressor_ = self._build_general_regressor()
+            self.specialist_regressor_.fit(X.loc[high_mask], y_values[high_mask])
+        else:
+            self.specialist_regressor_ = None
+
+        return self
+
+    def predict(self, X: Any):
+        check_is_fitted(self, ["general_regressor_"])
+        general_predictions = np.asarray(self.general_regressor_.predict(X), dtype=float)
+        if self.specialist_regressor_ is not None and getattr(self, "all_training_rows_high_price_", False):
+            return np.asarray(self.specialist_regressor_.predict(X), dtype=float)
+        if self.classifier_ is None or self.specialist_regressor_ is None:
+            return general_predictions
+
+        specialist_probabilities = np.asarray(self.classifier_.predict_proba(X)[:, 1], dtype=float)
+        specialist_predictions = np.asarray(self.specialist_regressor_.predict(X), dtype=float)
+        return np.where(specialist_probabilities >= float(self.routing_threshold), specialist_predictions, general_predictions)
+
+
+def build_high_price_specialist_pipeline(
+    selected: SelectedColumns,
+    *,
+    high_price_threshold: float = 250_000.0,
+    routing_threshold: float = 0.5,
+    min_specialist_rows: int = 4,
+    random_state: int = 42,
+) -> HighPriceSpecialistRegressor:
+    return HighPriceSpecialistRegressor(
+        selected=selected,
+        high_price_threshold=high_price_threshold,
+        routing_threshold=routing_threshold,
+        min_specialist_rows=min_specialist_rows,
+        random_state=random_state,
+    )
+
+
+def _build_feature_transformer(
+    selected: SelectedColumns,
+    *,
+    numeric_with_mean: bool = True,
+    categorical_sparse_output: bool = False,
+    sparse_threshold: float = 0.3,
+) -> ColumnTransformer:
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
+            ("scaler", StandardScaler(with_mean=numeric_with_mean)),
         ]
     )
     categorical_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-            ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=categorical_sparse_output)),
         ]
     )
 
@@ -97,6 +239,7 @@ def _build_feature_transformer(selected: SelectedColumns) -> ColumnTransformer:
     return ColumnTransformer(
         transformers=transformers,
         remainder="drop",
+        sparse_threshold=sparse_threshold,
     )
 
 
