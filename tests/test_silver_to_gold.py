@@ -24,7 +24,51 @@ def test_create_model_categories_maps_known_models():
 
     result = create_model_categories(df)
 
-    assert result["model_category"].tolist() == ["911", "718", "Other"]
+    assert result["model_category"].tolist() == ["Base Carrera / Targa / 912", "718", "Other"]
+
+
+def test_create_model_categories_restores_legacy_hierarchy():
+    df = pd.DataFrame(
+        {
+            "Model": [
+                "Porsche 911 GT2 RS",
+                "Porsche 911 GT3 RS",
+                "Porsche 964 Carrera RS",
+                "Porsche 911 Speedster",
+                "Singer 911",
+                "Porsche 911 Turbo S",
+                "Porsche 911 GTS",
+                "Porsche 911 Carrera 3.2",
+                "Porsche 912 Coupe",
+                "Porsche Cayman GT4",
+                "Porsche Boxster",
+            ]
+        }
+    )
+
+    result = create_model_categories(df)
+
+    assert result["model_category"].tolist() == [
+        "GT2RS and RARE Models",
+        "GT3RS",
+        "RS Model",
+        "Special / Backdate",
+        "Bespoke / Rarest Models",
+        "Turbo S / Turbo",
+        "GTS",
+        "Carrera 3.0/3.2 / S / SC",
+        "Base Carrera / Targa / 912",
+        "GT4 / GT3 / GT2",
+        "718",
+    ]
+
+
+def test_create_model_categories_prefers_specific_match_over_generic_911():
+    df = pd.DataFrame({"Model": ["Porsche 911 Carrera RS", "Porsche 911 Carrera"]})
+
+    result = create_model_categories(df)
+
+    assert result["model_category"].tolist() == ["RS Model", "Base Carrera / Targa / 912"]
 
 
 def test_calculate_listing_score_uses_available_quality_fields():

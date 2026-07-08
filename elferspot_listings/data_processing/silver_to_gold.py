@@ -17,6 +17,41 @@ if str(PROJECT_ROOT) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
+MODEL_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
+    (r"\b(singer|guntherwerks|gunther werks|lanzante)\b", "Bespoke / Rarest Models"),
+    (
+        r"(gt2 rs|gt2rs|911 gt2 rs|sport classic|911 st\b|911 s[\s/]?t|60 (jahre|years|anniversary)|911 r\b|le mans centenaire edition|991 club coup[eé]|club coup[eé])",
+        "GT2RS and RARE Models",
+    ),
+    (r"\b(gt3 rs|gt3rs|911 gt3 rs|ruf|dakar|gt2 clubsport)\b", "GT3RS"),
+    (
+        r"\b(964 carrera rs|993 carrera rs|carrera rs\b|911 carrera rs\b|rs america|911 carrera 2\.7|911 carrera 2,7|911 carrera 2\.7 rs|911 carrera 2\.7 mfi|flachbau|gt4 rs|gt4rs|leichtbau)\b",
+        "RS Model",
+    ),
+    (r"\b(gt3\b(?! rs)|gt2\b(?! rs)|911 gt3\b(?! rs)|911 gt2\b(?! rs)|cup|gt4|911 carrera 3\.2 clubsport)\b", "GT4 / GT3 / GT2"),
+    (r"\b(speedster|clubsport|heritage|backdate|restomod|modified|exclusive manufaktur)\b", "Special / Backdate"),
+    (r"\b(turbo s|turbo|930)\b", "Turbo S / Turbo"),
+    (r"\b(gts)\b", "GTS"),
+    (r"\b(carrera 3\.0|carrera 3,0|carrera 3\.2|carrera 3,2|911 sc|super carrera|carrera s|carrera 4s)\b", "Carrera 3.0/3.2 / S / SC"),
+    (r"\b(912\b|911\b|911 t\b|911 l\b|911 e\b|911 targa\b|carrera\b|carrera 2\b|cabriolet|targa|coupe|convertible)\b", "Base Carrera / Targa / 912"),
+    (r"\b(boxster|cayman|718|981|982|987)\b", "718"),
+)
+
+MODEL_CATEGORY_ORDER: tuple[str, ...] = (
+    "Base Carrera / Targa / 912",
+    "Carrera 3.0/3.2 / S / SC",
+    "GTS",
+    "Turbo S / Turbo",
+    "GT4 / GT3 / GT2",
+    "Special / Backdate",
+    "RS Model",
+    "GT3RS",
+    "GT2RS and RARE Models",
+    "Bespoke / Rarest Models",
+    "718",
+    "Other",
+)
+
 
 def remove_outliers(
     df: pd.DataFrame,
@@ -68,38 +103,30 @@ def create_log_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_model_categories(df: pd.DataFrame) -> pd.DataFrame:
-    """Create broader model categories for better generalization."""
+    """Create legacy model categories for better price generalization."""
     logger.info("Creating model categories")
-    
-    if 'Model' not in df.columns:
-        logger.warning("Model column not found, skipping categorization")
-        return df
-    
-    # Focused on 911 and 718 series (current scraping targets)
-    model_mapping = {
-        '911': '911',
-        'Boxster': '718',
-        'Cayman': '718',
-    }
-    # Legacy full mapping (commented for reference):
-    # '912': '912', '914': '914', '924': '924', '928': '928',
-    # '944': '944', '968': '968', 'Carrera GT': 'Supercar',
-    # '918': 'Supercar', 'Cayenne': 'SUV', 'Macan': 'SUV',
-    # 'Panamera': 'Sedan', 'Taycan': 'Electric'
-    
-    def categorize_model(model: str) -> str:
+
+    result = df.copy()
+
+    def categorize_model(model: object) -> str:
         if pd.isna(model):
-            return 'Other'
-        model = str(model)
-        for key, category in model_mapping.items():
-            if key.lower() in model.lower():
+            return "Other"
+
+        model_text = str(model)
+        for pattern, category in MODEL_CATEGORY_RULES:
+            if re.search(pattern, model_text, flags=re.IGNORECASE):
                 return category
-        return 'Other'
-    
-    df['model_category'] = df['Model'].apply(categorize_model)
-    
-    logger.info(f"Created {df['model_category'].nunique()} model categories")
-    return df
+        return "Other"
+
+    if "Model" not in result.columns:
+        logger.warning("Model column not found, assigning Other to model categories")
+        result["model_category"] = "Other"
+        return result
+
+    result["model_category"] = result["Model"].apply(categorize_model)
+
+    logger.info("Created %s model categories", result["model_category"].nunique())
+    return result
 
 
 def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
