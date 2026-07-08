@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,15 @@ def _gpu_catboost_params(device: str = "cpu", gpu_devices: str | None = None) ->
     return params
 
 
+def _prepare_catboost_frame(X, selected: SelectedColumns) -> tuple[pd.DataFrame, list[int]]:
+    frame = pd.DataFrame(X).copy()
+    categorical_columns = [column for column in selected.categorical if column in frame.columns]
+    for col in categorical_columns:
+        frame[col] = frame[col].fillna("Unknown").astype(str)
+    cat_features = [cast(int, frame.columns.get_loc(column)) for column in categorical_columns]
+    return frame, cat_features
+
+
 def fit_catboost_regressor(
     X_train,
     y_train,
@@ -42,15 +51,10 @@ def fit_catboost_regressor(
 ):
     from catboost import CatBoostRegressor, Pool
 
-    frame = pd.DataFrame(X_train).copy()
+    frame, cat_features = _prepare_catboost_frame(X_train, selected)
     target = np.asarray(y_train, dtype=float)
     if np.any(target <= 0):
         raise ValueError("Target values must be positive before applying the log transform")
-
-    categorical_columns = [column for column in selected.categorical if column in frame.columns]
-    for col in categorical_columns:
-        frame[col] = frame[col].fillna("Unknown").astype(str)
-    cat_features = [frame.columns.get_loc(column) for column in categorical_columns]
 
     train_pool = Pool(frame, label=np.log(target), cat_features=cat_features)
     model_params = default_catboost_params(random_state=random_state)
@@ -64,6 +68,48 @@ def fit_catboost_regressor(
 
 def predict_catboost_eur(model, X):
     return np.exp(np.asarray(model.predict(X), dtype=float))
+
+
+def fit_catboost_quantile_interval(
+    X_train,
+    y_train,
+    selected: SelectedColumns,
+    random_state: int = 42,
+    params: dict[str, Any] | None = None,
+    device: str = "cpu",
+    gpu_devices: str | None = None,
+) -> dict[str, Any]:
+    from catboost import CatBoostRegressor, Pool
+
+    frame, cat_features = _prepare_catboost_frame(X_train, selected)
+    target = np.asarray(y_train, dtype=float)
+    if np.any(target <= 0):
+        raise ValueError("Target values must be positive before applying the log transform")
+
+    train_pool = Pool(frame, label=np.log(target), cat_features=cat_features)
+    base_params = default_catboost_params(random_state=random_state)
+    if params:
+        base_params.update(params)
+    base_params.update(_gpu_catboost_params(device=device, gpu_devices=gpu_devices))
+
+    fitted: dict[str, Any] = {}
+    for name, alpha in (("lower", 0.05), ("median", 0.5), ("upper", 0.95)):
+        model_params = {**base_params, "loss_function": f"Quantile:alpha={alpha}"}
+        model = CatBoostRegressor(**model_params)
+        model.fit(train_pool)
+        fitted[name] = model
+    return fitted
+
+
+def predict_catboost_interval_eur(interval_models: dict[str, Any], X) -> pd.DataFrame:
+    frame = pd.DataFrame(X).copy()
+    predictions = pd.DataFrame(index=frame.index)
+    predictions["pred_lower"] = np.exp(np.asarray(interval_models["lower"].predict(frame), dtype=float))
+    predictions["pred_price"] = np.exp(np.asarray(interval_models["median"].predict(frame), dtype=float))
+    predictions["pred_upper"] = np.exp(np.asarray(interval_models["upper"].predict(frame), dtype=float))
+    ordered = np.sort(predictions[["pred_lower", "pred_price", "pred_upper"]].to_numpy(dtype=float), axis=1)
+    predictions.loc[:, ["pred_lower", "pred_price", "pred_upper"]] = ordered
+    return predictions
 
 
 def save_catboost_model(model, path):

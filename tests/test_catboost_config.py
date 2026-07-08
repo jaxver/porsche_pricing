@@ -7,11 +7,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from elferspot_listings.modeling.catboost_model import (
     default_catboost_params,
     fit_catboost_regressor,
+    fit_catboost_quantile_interval,
     predict_catboost_eur,
+    predict_catboost_interval_eur,
     save_catboost_model,
 )
 from elferspot_listings.modeling.features import SelectedColumns
@@ -85,6 +88,46 @@ def test_fit_catboost_regressor_uses_log_target_and_selected_categorical_columns
     np.testing.assert_allclose(predict_catboost_eur(model, X), [210000.0, 210000.0])
 
 
+def test_fit_catboost_quantile_interval_returns_eur_bounds():
+    pytest.importorskip("catboost")
+
+    train = pd.DataFrame(
+        {
+            "price_in_eur": [80000.0, 90000.0, 120000.0, 150000.0, 250000.0, 300000.0],
+            "Mileage_km": [90000.0, 70000.0, 50000.0, 30000.0, 15000.0, 10000.0],
+            "model_category": [
+                "Base Carrera / Targa / 912",
+                "Base Carrera / Targa / 912",
+                "GTS",
+                "Turbo S / Turbo",
+                "RS Model",
+                "GT2RS and RARE Models",
+            ],
+        }
+    )
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=("model_category",),
+    )
+    X = train[list(selected.features)]
+    y = train["price_in_eur"]
+
+    interval = fit_catboost_quantile_interval(
+        X,
+        y,
+        selected,
+        random_state=42,
+        params={"iterations": 5, "depth": 2, "learning_rate": 0.1, "allow_writing_files": False, "verbose": False},
+    )
+    predictions = predict_catboost_interval_eur(interval, X)
+
+    assert list(predictions.columns) == ["pred_lower", "pred_price", "pred_upper"]
+    assert len(predictions) == len(train)
+    assert (predictions["pred_lower"] <= predictions["pred_price"]).all()
+    assert (predictions["pred_price"] <= predictions["pred_upper"]).all()
+
+
 def test_fit_catboost_regressor_merges_gpu_params_with_tuned_params(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -143,7 +186,7 @@ def test_train_baseline_models_tunes_catboost_on_gpu_and_merges_params(tmp_path,
 
     class FakePool:
         def __init__(self, data, label=None, cat_features=None):
-            captured.setdefault("pool_calls", []).append((data.copy(), label.copy(), list(cat_features or [])))
+            captured.setdefault("pool_calls", []).append((data.copy(), None if label is None else label.copy(), list(cat_features or [])))
 
     class FakeCatBoostRegressor:
         def __init__(self, **params):
