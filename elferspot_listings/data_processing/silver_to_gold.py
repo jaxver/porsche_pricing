@@ -61,8 +61,10 @@ def remove_outliers(
 ) -> pd.DataFrame:
     """Remove outliers based on standard deviations."""
     logger.info(f"Removing outliers from {column} (±{n_std} std)")
-    
+
     initial_count = len(df)
+    if initial_count < 2:
+        return df.copy()
     
     if use_log:
         log_col = f'log_{column}'
@@ -83,7 +85,8 @@ def remove_outliers(
         ].copy()
     
     removed = initial_count - len(df)
-    logger.info(f"Removed {removed} outliers ({removed/initial_count*100:.1f}%)")
+    percent_removed = 0.0 if initial_count == 0 else removed / initial_count * 100
+    logger.info(f"Removed {removed} outliers ({percent_removed:.1f}%)")
     
     return df
 
@@ -141,8 +144,9 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
     
     # --- Data completeness scoring ---
     if 'Matching numbers' in df.columns:
+        matching_numbers = df['Matching numbers'].fillna('').astype(str).str.strip().str.lower()
         score_components.append(
-            (df['Matching numbers'] != 'Unknown').astype(int) * 10
+            matching_numbers.isin({'yes', 'matching numbers', 'numbers matching', 'matching drivetrain'}).astype(int) * 10
         )
     
     if 'Number of vehicle owners' in df.columns:

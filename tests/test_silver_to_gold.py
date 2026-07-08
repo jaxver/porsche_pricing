@@ -5,6 +5,7 @@ from elferspot_listings.data_processing.silver_to_gold import (
     calculate_listing_score,
     create_log_features,
     create_model_categories,
+    remove_outliers,
     prepare_modeling_features,
 )
 
@@ -17,6 +18,23 @@ def test_create_log_features_adds_price_and_mileage_columns():
     assert result.loc[0, "log_price"] == np.log(100000.0)
     assert result.loc[0, "log_mileage"] == np.log1p(9999.0)
     assert result.loc[0, "Mileage_sq"] == 9999.0**2
+
+
+def test_remove_outliers_handles_empty_log_input():
+    df = pd.DataFrame({"price_in_eur": []})
+
+    result = remove_outliers(df, "price_in_eur", use_log=True)
+
+    assert result.empty
+
+
+def test_remove_outliers_keeps_single_positive_log_row():
+    df = pd.DataFrame({"price_in_eur": [100000.0]})
+
+    result = remove_outliers(df, "price_in_eur", use_log=True)
+
+    assert len(result) == 1
+    assert result.loc[0, "price_in_eur"] == 100000.0
 
 
 def test_create_model_categories_maps_known_models():
@@ -122,6 +140,18 @@ def test_calculate_listing_score_uses_available_quality_fields():
     assert result["listing_score"].dtype.kind in "fi"
     assert result.loc[0, "listing_score"] > result.loc[1, "listing_score"]
     assert result.loc[1, "listing_score"] == 0
+
+
+def test_calculate_listing_score_only_rewards_positive_matching_numbers():
+    df = pd.DataFrame(
+        {
+            "Matching numbers": ["Yes", "matching numbers", "No", "Unknown"],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result["listing_score"].tolist() == [10, 10, 0, 0]
 
 
 def test_prepare_modeling_features_coerces_numeric_and_fills_colors():
