@@ -17,6 +17,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
+TEXT_FEATURE_COLUMNS = ("Title", "Model", "Description", "Secondary_Description")
+
+
+def build_listing_text(df: pd.DataFrame) -> pd.Series:
+    """Combine available listing text fields into one modeling text source."""
+    available_columns = [column for column in TEXT_FEATURE_COLUMNS if column in df.columns]
+    if not available_columns:
+        return pd.Series("", index=df.index, dtype="object")
+    return df[available_columns].fillna("").astype(str).agg(" ".join, axis=1)
+
 MODEL_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     (r"\b(singer|guntherwerks|gunther werks|lanzante|carrera gt)\b", "Bespoke / Rarest Models"),
     (
@@ -241,11 +251,19 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'has_docs': r'\b(?:full (?:documentation|service history|records|history)|extensive records|well documented|fully documented)\b',
         'is_matching_numbers': r'\b(?:matching numbers|numbers matching|matching drivetrain)\b',
         'is_mint': r'\b(?:mint condition|collector quality|fully sorted|excellent condition|top condition|showroom condition)\b',
-        'is_race_ready': r'\b(?:rally ready|race[- ]?ready|track[- ]?prepped|bucket seats|racing harness|homologated|fire suppression system)\b',
-        'is_rare': r'\b(?:rare\b|special edition|limited edition|1 of (?:\d+|one)|unique example|only \d+ produced|production number \d+|rwb|singer|guntherwerks|elfwerks)\b',
+        'is_race_ready': r'\b(?:rally ready|race[- ]?ready|track[- ]?prepped|bucket seats|racing harness|homologated|fire suppression system|racing history|race winner|overall winner|group winner|24 hour|nürburgring|nurburgring|spa|le mans|adac|fia|championship|podium|cup\s*s?\b|clubsport|club sport|cup car)\b',
+        'is_rare': r'\b(?:rare\b|special edition|limited edition|1 of (?:\d+|one)|one of \d+|only \d+ (?:produced|built|made|delivered|examples|cars)|\d+ produced|production number \d+|number \d+ of \d+|rwb|singer|guntherwerks|elfwerks|sport classic|speedster|911 r\b|911 st\b|s/t|heritage design|dakar|bespoke|factory-approved exclusivity|exclusive manufaktur|paint to sample|pts|sonderwunsch|unique piece|unique example|special commission|commissioned)\b',
         'is_accident_free': r'\b(?:accident[- ]?free|never crashed|clean title|no accidents|undamaged)\b',
         'has_upgrades': r'\b(?:KW suspension|x51|upgraded brakes|recaro|limited[- ]?slip|aftermarket (?:exhaust|turbo|suspension|intake|wheels)|performance parts|turbo upgrade|weissach package)\b',
         'first_owner': r'\b(?:first owner|one owner|single owner|original owner|first hand|single registered keeper)\b',
+        'limited_production': r'\b(?:one of|1 of|only)\s+\d+\s+(?:produced|built|made|delivered|examples|cars)\b|\b\d+\s+produced\b|\bnumber\s+\d+\s+of\s+\d+\b',
+        'racing_history': r'\b(?:racing history|race winner|overall winner|group winner|24 hour|nürburgring|nurburgring|spa|le mans|adac|fia|championship|podium)\b',
+        'specialist_build': r'\b(?:rs tuning|manthey|ruf|singer|gunther|guntherwerks|lanzante|kremer|dp motorsport|techart|gemballa|rwb|theon|paul stephens|tuthill|emerson|canepa)\b',
+        'bespoke_exclusive': r'\b(?:bespoke|factory-approved exclusivity|exclusive manufaktur|paint to sample|pts|sonderwunsch|unique piece|unique example|special commission|commissioned|commission)\b',
+        'zero_running_hours': r'\b(?:zero running hours|0 running hours|no running hours)\b',
+        'engine_transmission_rebuilt': r'\b(?:engine and transmission|gearbox).{0,80}\b(?:overhauled|rebuilt|rebuild|restored)\b|\b(?:overhauled|rebuilt|rebuild|restored).{0,80}\b(?:engine and transmission|gearbox)\b',
+        'cup_clubsport': r'\b(?:cup\s*s?\b|clubsport|club sport|cup car)\b',
+        'heritage_special': r'\b(?:sport classic|speedster|911 r\b|911 st\b|s/t|heritage design|dakar)\b',
     }
     
     description_weights = {
@@ -260,10 +278,19 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'is_accident_free': 0.5,
         'has_upgrades': 2.3,
         'first_owner': 1.2,
+        'limited_production': 2.0,
+        'racing_history': 2.0,
+        'specialist_build': 1.8,
+        'bespoke_exclusive': 1.8,
+        'zero_running_hours': 1.8,
+        'engine_transmission_rebuilt': 1.2,
+        'cup_clubsport': 1.5,
+        'heritage_special': 2.0,
     }
-    
-    if 'Description' in df.columns:
-        text_series = df['Description'].fillna("").str.lower()
+
+    if any(column in df.columns for column in TEXT_FEATURE_COLUMNS):
+        df['listing_text'] = build_listing_text(df)
+        text_series = df['listing_text'].fillna("").str.lower()
         for feature, pattern in description_patterns.items():
             df[feature] = text_series.str.contains(pattern, regex=True, flags=re.IGNORECASE).astype(int)
             score_components.append(df[feature] * description_weights[feature])

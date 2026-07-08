@@ -34,12 +34,14 @@ def test_ridge_pipeline_fits_mixed_dataframe_and_predicts_positive_eur_scale_val
         target="price_in_eur",
         numeric=("Mileage_km", "Year of construction"),
         categorical=("model_category",),
+        text=("Description",),
     )
     X = pd.DataFrame(
         {
             "Mileage_km": [10000, 25000, None, 40000],
             "Year of construction": [1995, 2000, 1988, None],
             "model_category": ["911", "Cayenne", None, "Boxster"],
+            "Description": ["Sport Classic one of 30", "Standard car", None, "RS Tuning Cup S"],
         }
     )
     y = [120000, 95000, 180000, 145000]
@@ -51,6 +53,52 @@ def test_ridge_pipeline_fits_mixed_dataframe_and_predicts_positive_eur_scale_val
     assert len(predictions) == len(X)
     assert (predictions > 0).all()
     assert predictions.mean() > 1000
+
+
+def test_ridge_pipeline_includes_tfidf_text_features():
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+        text=("Description",),
+    )
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000, 20000, 30000, 40000],
+            "Description": ["Sport Classic", "Cup S", "RS Tuning", "standard carrera"],
+        }
+    )
+
+    model = build_ridge_pipeline(selected, tfidf_max_features=20, tfidf_min_df=1, tfidf_ngram_range=(1, 2))
+    model.fit(X, [300000, 240000, 220000, 120000])
+
+    text_transformer = {name: transformer for name, transformer, _columns in model.regressor_.named_steps["features"].transformers_}["text"]
+    assert text_transformer.named_steps["tfidf"].max_features == 20
+    assert text_transformer.named_steps["tfidf"].ngram_range == (1, 2)
+
+
+def test_ridge_pipeline_excludes_redundant_linear_text_flags():
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=(
+            "Mileage_km",
+            "model_cat_ordered",
+            "Mileage_model_cat",
+            "limited_production",
+            "racing_history",
+        ),
+        categorical=(),
+        text=("Description",),
+    )
+
+    model = build_ridge_pipeline(selected)
+
+    numeric_columns = next(
+        columns
+        for name, _transformer, columns in model.regressor.steps[0][1].transformers
+        if name == "numeric"
+    )
+    assert numeric_columns == ["Mileage_km"]
 
 
 def test_ridge_pipeline_fits_numeric_only_schema():
@@ -116,12 +164,14 @@ def test_elasticnet_pipeline_uses_ridge_preprocessing_and_predicts_positive_eur_
         target="price_in_eur",
         numeric=("Mileage_km", "Year of construction"),
         categorical=("model_category",),
+        text=("Description",),
     )
     X = pd.DataFrame(
         {
             "Mileage_km": [10000, 25000, None, 40000],
             "Year of construction": [1995, 2000, 1988, None],
             "model_category": ["911", "Cayenne", None, "Boxster"],
+            "Description": ["Sport Classic one of 30", "Standard car", None, "RS Tuning Cup S"],
         }
     )
     y = [120000, 95000, 180000, 145000]
@@ -133,6 +183,28 @@ def test_elasticnet_pipeline_uses_ridge_preprocessing_and_predicts_positive_eur_
     assert len(predictions) == len(X)
     assert (predictions > 0).all()
     assert predictions.mean() > 1000
+
+
+def test_elasticnet_pipeline_includes_tfidf_text_features():
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=("Mileage_km",),
+        categorical=(),
+        text=("Description",),
+    )
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000, 20000, 30000, 40000],
+            "Description": ["Sport Classic", "Cup S", "RS Tuning", "standard carrera"],
+        }
+    )
+
+    model = build_elasticnet_pipeline(selected, tfidf_max_features=20, tfidf_min_df=1, tfidf_ngram_range=(1, 1))
+    model.fit(X, [300000, 240000, 220000, 120000])
+
+    text_transformer = {name: transformer for name, transformer, _columns in model.regressor_.named_steps["features"].transformers_}["text"]
+    assert text_transformer.named_steps["tfidf"].max_features == 20
+    assert text_transformer.named_steps["tfidf"].ngram_range == (1, 1)
 
 
 def test_skrub_ridge_pipeline_fits_mixed_dataframe_and_predicts_positive_eur_scale_values():

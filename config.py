@@ -104,6 +104,11 @@ MODEL_CONFIG = {
         'alpha': 5e-05,
         'l1_ratio': 0.655,
         'max_iter': 20000
+    },
+    'tfidf': {
+        'max_features': 5000,
+        'min_df': 3,
+        'ngram_range': (1, 2)
     }
 }
 

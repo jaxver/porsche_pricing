@@ -49,7 +49,7 @@ def test_train_baseline_models_with_ridge_only_runs_ridge(tmp_path, monkeypatch)
     monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("tabpfn should not run")))
     monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("autogluon should not run")))
     monkeypatch.setattr("elferspot_listings.modeling.train.fit_catboost_regressor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("catboost should not run")))
-    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda _selected: DummyRegressor(strategy="mean"))
+    monkeypatch.setattr("elferspot_listings.modeling.train.build_ridge_pipeline", lambda _selected, **_kwargs: DummyRegressor(strategy="mean"))
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["ridge"])
 
@@ -575,6 +575,45 @@ def test_train_baseline_models_appends_tabfm_predictions_when_enabled(tmp_path, 
     assert captured["tabfm_kwargs"] == {}
     assert not captured["X_train"].isna().any().any()
     assert not captured["X_test"].isna().any().any()
+
+
+def test_train_baseline_models_drops_listing_text_for_optional_backends(tmp_path, monkeypatch):
+    gold_df = _gold_frame().assign(
+        Title=["Sport Classic"] * 8,
+        Description=["One of 30 produced by RS Tuning"] * 8,
+        Secondary_Description=["Racing history"] * 8,
+    )
+    captured = {}
+
+    def fake_tabpfn(X_train, y_train, X_test, **kwargs):
+        captured["tabpfn_columns"] = list(X_train.columns)
+        return object(), pd.Series([111.0] * len(X_test), index=X_test.index), {"model_name": "tabpfn_default"}
+
+    def fake_tabfm(X_train, y_train, X_test, **kwargs):
+        captured["tabfm_columns"] = list(X_train.columns)
+        return object(), pd.Series([222.0] * len(X_test), index=X_test.index), {"model_name": "tabfm"}
+
+    def fake_autogluon(train_df, test_df, target, output_dir, **kwargs):
+        captured["autogluon_columns"] = list(train_df.columns)
+        return object(), pd.Series([333.0] * (len(test_df)), index=test_df.index), {}, output_dir
+
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabpfn_regression", fake_tabpfn)
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_tabfm_regression", fake_tabfm)
+    monkeypatch.setattr("elferspot_listings.modeling.train.run_autogluon_regression", fake_autogluon)
+
+    train_baseline_models(
+        gold_df,
+        tmp_path,
+        random_state=42,
+        models=["tabpfn", "tabfm", "autogluon"],
+        run_tabpfn=True,
+        run_tabfm=True,
+        run_autogluon=True,
+    )
+
+    assert not any(column.startswith("listing_text") for column in captured["tabpfn_columns"])
+    assert "listing_text" not in captured["tabfm_columns"]
+    assert "listing_text" not in captured["autogluon_columns"]
 
 
 def test_train_baseline_models_forwards_tabfm_runtime_overrides(tmp_path, monkeypatch):

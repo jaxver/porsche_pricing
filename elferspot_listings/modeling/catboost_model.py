@@ -32,7 +32,8 @@ def _gpu_catboost_params(device: str = "cpu", gpu_devices: str | None = None) ->
 
 
 def _prepare_catboost_frame(X, selected: SelectedColumns) -> tuple[pd.DataFrame, list[int]]:
-    frame = pd.DataFrame(X).copy()
+    source = pd.DataFrame(X)
+    frame = source.loc[:, [column for column in selected.non_text_features if column in source.columns]].copy()
     categorical_columns = [column for column in selected.categorical if column in frame.columns]
     for col in categorical_columns:
         frame[col] = frame[col].fillna("Unknown").astype(str)

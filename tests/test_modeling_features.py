@@ -5,6 +5,7 @@ from elferspot_listings.modeling.features import (
     CATEGORICAL_ALLOWLIST,
     NUMERIC_ALLOWLIST,
     TARGET_COLUMN,
+    TEXT_ALLOWLIST,
     build_feature_frame,
     select_model_columns,
 )
@@ -16,6 +17,7 @@ def test_select_model_columns_returns_existing_allowlisted_columns_only():
             TARGET_COLUMN: [100000, 120000],
             "Mileage_km": [10000, 20000],
             "Model": ["911", "Cayenne"],
+            "Description": ["Sport Classic one of 30", "Standard car"],
             "unused": [1, 2],
         }
     )
@@ -25,7 +27,8 @@ def test_select_model_columns_returns_existing_allowlisted_columns_only():
     assert selected.target == TARGET_COLUMN
     assert selected.numeric == ("Mileage_km",)
     assert selected.categorical == ("Model",)
-    assert selected.features == ["Mileage_km", "Model"]
+    assert selected.text == ("Description",)
+    assert selected.features == ["Mileage_km", "Model", "Description"]
 
 
 def test_select_model_columns_includes_richer_existing_gold_columns():
@@ -77,6 +80,14 @@ def test_select_model_columns_includes_restored_legacy_numeric_features():
             "state_yes": [1],
             "state_Rear drive": [1],
             "matching_yes": [1],
+            "limited_production": [1],
+            "racing_history": [1],
+            "specialist_build": [1],
+            "bespoke_exclusive": [1],
+            "zero_running_hours": [1],
+            "engine_transmission_rebuilt": [1],
+            "cup_clubsport": [1],
+            "heritage_special": [1],
         }
     )
 
@@ -102,6 +113,14 @@ def test_select_model_columns_includes_restored_legacy_numeric_features():
         "state_yes",
         "state_Rear drive",
         "matching_yes",
+        "limited_production",
+        "racing_history",
+        "specialist_build",
+        "bespoke_exclusive",
+        "zero_running_hours",
+        "engine_transmission_rebuilt",
+        "cup_clubsport",
+        "heritage_special",
     )
 
 
@@ -118,6 +137,7 @@ def test_selected_columns_fields_are_immutable_tuples():
 
     assert isinstance(selected.numeric, tuple)
     assert isinstance(selected.categorical, tuple)
+    assert isinstance(selected.text, tuple)
     with pytest.raises(AttributeError):
         selected.numeric.append("extra")
 
@@ -125,6 +145,7 @@ def test_selected_columns_fields_are_immutable_tuples():
 def test_allowlists_are_immutable_tuples():
     assert isinstance(NUMERIC_ALLOWLIST, tuple)
     assert isinstance(CATEGORICAL_ALLOWLIST, tuple)
+    assert isinstance(TEXT_ALLOWLIST, tuple)
 
 
 def test_build_feature_frame_drops_rows_without_target():
@@ -141,7 +162,7 @@ def test_build_feature_frame_drops_rows_without_target():
     assert len(X) == 2
     assert y.tolist() == [100000.0, 120000.0]
     assert y.dtype.kind == "f"
-    assert selected.features == ["Mileage_km", "Model"]
+    assert selected.features == ["Mileage_km", "Model", "listing_text"]
 
 
 def test_build_feature_frame_raises_for_missing_target():

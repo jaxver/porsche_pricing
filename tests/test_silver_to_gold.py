@@ -204,6 +204,34 @@ def test_calculate_listing_score_only_rewards_positive_matching_numbers():
     assert result["listing_score"].tolist() == [10, 10, 0, 0]
 
 
+def test_calculate_listing_score_extracts_high_value_signals_from_all_listing_text():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 992 Sport Classic bespoke commission"],
+            "Model": ["997 GT3 Cup S"],
+            "Description": ["One of 30 produced and prepared by RS Tuning after an engine and transmission rebuild."],
+            "Secondary_Description": ["Outstanding racing history with zero running hours since overhaul."],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    expected_flags = [
+        "limited_production",
+        "racing_history",
+        "specialist_build",
+        "bespoke_exclusive",
+        "zero_running_hours",
+        "engine_transmission_rebuilt",
+        "cup_clubsport",
+        "heritage_special",
+    ]
+    assert result.loc[0, expected_flags].tolist() == [1] * len(expected_flags)
+    assert result.loc[0, "is_rare"] == 1
+    assert result.loc[0, "is_race_ready"] == 1
+    assert result.loc[0, "listing_score"] > 15
+
+
 def test_prepare_modeling_features_coerces_numeric_and_fills_colors():
     df = pd.DataFrame(
         {

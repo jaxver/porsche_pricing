@@ -229,6 +229,13 @@ def _prepare_tabpfn_features(X_train: pd.DataFrame, X_test: pd.DataFrame) -> tup
     return train_encoded, test_encoded
 
 
+def _drop_text_features(X: pd.DataFrame, selected: Any) -> pd.DataFrame:
+    text_columns = [column for column in getattr(selected, "text", ()) if column in X.columns]
+    if not text_columns:
+        return X
+    return X.drop(columns=text_columns)
+
+
 def _normalize_tabpfn_checkpoint_alias(model_path: str | None) -> tuple[str, str | None]:
     if model_path in (None, "default"):
         return "tabpfn_default", None
@@ -391,6 +398,8 @@ def train_baseline_models(
     requested_models = _normalize_requested_models(models)
     X, y, selected = build_feature_frame(gold_df)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=random_state)
+    X_train_non_text = _drop_text_features(X_train, selected)
+    X_test_non_text = _drop_text_features(X_test, selected)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -406,6 +415,12 @@ def train_baseline_models(
     saved_artifact_paths: list[Path] = []
 
     elasticnet_params = dict(config.MODEL_CONFIG["elasticnet"])
+    tfidf_params = dict(config.MODEL_CONFIG.get("tfidf", {}))
+    tfidf_build_kwargs = {
+        "tfidf_max_features": int(tfidf_params.get("max_features", 5000)),
+        "tfidf_min_df": int(tfidf_params.get("min_df", 3)),
+        "tfidf_ngram_range": tuple(tfidf_params.get("ngram_range", (1, 2))),
+    }
     if _should_run_model(requested_models, "elasticnet", legacy_enabled=True) and tune_elasticnet:
         with _ModelRunLogger("elasticnet_tuning", verbose=verbose) as model_log:
             model_log.step("search")
@@ -426,7 +441,7 @@ def train_baseline_models(
         with _ModelRunLogger("median", verbose=verbose) as model_log:
             model_log.step("fit and score")
             model = MedianRegressor()
-            model_predictions, model_metrics = _score_model(model, X_train, y_train, X_test, y_test)
+            model_predictions, model_metrics = _score_model(model, X_train_non_text, y_train, X_test_non_text, y_test)
             model_predictions = model_predictions.assign(model_name="median")
             metrics["median"] = model_metrics
             prediction_frames.append(model_predictions)
@@ -434,7 +449,7 @@ def train_baseline_models(
     if _should_run_model(requested_models, "ridge", legacy_enabled=True):
         with _ModelRunLogger("ridge", verbose=verbose) as model_log:
             model_log.step("build")
-            ridge_model = build_ridge_pipeline(selected)
+            ridge_model = build_ridge_pipeline(selected, **tfidf_build_kwargs)
             model_log.step("fit and score")
             model_predictions, model_metrics = _score_model(ridge_model, X_train, y_train, X_test, y_test)
             model_predictions = model_predictions.assign(model_name="ridge")
@@ -450,6 +465,7 @@ def train_baseline_models(
                 alpha=float(elasticnet_params["alpha"]),
                 l1_ratio=float(elasticnet_params["l1_ratio"]),
                 max_iter=int(elasticnet_params["max_iter"]),
+                **tfidf_build_kwargs,
             )
             model_log.step("fit and score")
             model_predictions, model_metrics = _score_model(elasticnet_model, X_train, y_train, X_test, y_test)
@@ -464,7 +480,7 @@ def train_baseline_models(
                 model_log.step("build")
                 skrub_model = build_skrub_ridge_pipeline(selected)
                 model_log.step("fit and score")
-                model_predictions, model_metrics = _score_model(skrub_model, X_train, y_train, X_test, y_test)
+                model_predictions, model_metrics = _score_model(skrub_model, X_train_non_text, y_train, X_test_non_text, y_test)
                 model_predictions = model_predictions.assign(model_name="skrub_ridge")
                 metrics["skrub_ridge"] = model_metrics
                 prediction_frames.append(model_predictions)
@@ -482,7 +498,7 @@ def train_baseline_models(
                     **({"device": device} if device == "gpu" else {}),
                 )
                 model_log.step("fit and score")
-                model_predictions, model_metrics = _score_model(xgboost_model, X_train, y_train, X_test, y_test)
+                model_predictions, model_metrics = _score_model(xgboost_model, X_train_non_text, y_train, X_test_non_text, y_test)
                 model_predictions = model_predictions.assign(model_name="xgboost")
                 metrics["xgboost"] = model_metrics
                 prediction_frames.append(model_predictions)
@@ -496,7 +512,7 @@ def train_baseline_models(
                 model_log.step("build")
                 perpetual_model = build_perpetual_pipeline(selected, random_state=random_state)
                 model_log.step("fit and score")
-                model_predictions, model_metrics = _score_model(perpetual_model, X_train, y_train, X_test, y_test)
+                model_predictions, model_metrics = _score_model(perpetual_model, X_train_non_text, y_train, X_test_non_text, y_test)
                 model_predictions = model_predictions.assign(model_name="perpetual")
                 metrics["perpetual"] = model_metrics
                 prediction_frames.append(model_predictions)
@@ -511,7 +527,7 @@ def train_baseline_models(
                 with _ModelRunLogger("catboost_tuning", verbose=verbose) as model_log:
                     model_log.step("search")
                     catboost_params = tune_catboost_params(
-                        X_train,
+                        X_train_non_text,
                         y_train,
                         selected,
                         random_state=random_state,
@@ -521,7 +537,7 @@ def train_baseline_models(
             with _ModelRunLogger("catboost", verbose=verbose) as model_log:
                 model_log.step("fit and score")
                 catboost_model = fit_catboost_regressor(
-                    X_train,
+                    X_train_non_text,
                     y_train,
                     selected,
                     random_state=random_state,
@@ -533,7 +549,7 @@ def train_baseline_models(
         except Exception as exc:
             skipped_models["catboost"] = str(exc)
         else:
-            model_predictions, model_metrics = _score_catboost_model(catboost_model, X_test, y_test)
+            model_predictions, model_metrics = _score_catboost_model(catboost_model, X_test_non_text, y_test)
             model_predictions = model_predictions.assign(model_name="catboost")
             metrics["catboost"] = model_metrics
             prediction_frames.append(model_predictions)
@@ -548,9 +564,9 @@ def train_baseline_models(
             with _ModelRunLogger(model_name, verbose=verbose) as model_log:
                 model_log.step("fit and score")
                 _, tabpfn_predictions, metadata = run_tabpfn_client_regression(
-                    X_train,
+                    X_train_non_text,
                     y_train,
-                    X_test,
+                    X_test_non_text,
                     random_state=random_state,
                     thinking_mode=tabpfn_thinking,
                     thinking_effort=tabpfn_thinking_effort,
@@ -568,7 +584,7 @@ def train_baseline_models(
     else:
         tabpfn_requests = tabpfn_model_paths if should_run_tabpfn and tabpfn_model_paths is not None else ([None] if should_run_tabpfn else [])
         if tabpfn_requests:
-            tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train, X_test)
+            tabpfn_X_train, tabpfn_X_test = _prepare_tabpfn_features(X_train_non_text, X_test_non_text)
             missing_tabpfn_message: str | None = None
             for requested_model_path in tabpfn_requests:
                 model_name, normalized_model_path = _normalize_tabpfn_checkpoint_alias(requested_model_path)
@@ -612,9 +628,9 @@ def train_baseline_models(
             with _ModelRunLogger("tabfm", verbose=verbose) as model_log:
                 model_log.step("fit and score")
                 _, tabfm_predictions, metadata = run_tabfm_regression(
-                    X_train,
+                    X_train_non_text,
                     y_train,
-                    X_test,
+                    X_test_non_text,
                     random_state=random_state,
                     device=device,
                     **tabfm_kwargs,
@@ -631,9 +647,9 @@ def train_baseline_models(
 
     should_run_autogluon = _should_run_model(requested_models, "autogluon", legacy_enabled=run_autogluon)
     if should_run_autogluon:
-        autogluon_train_df = X_train.copy()
+        autogluon_train_df = X_train_non_text.copy()
         autogluon_train_df["price_in_eur"] = y_train.to_numpy(dtype=float)
-        autogluon_test_df = X_test.copy()
+        autogluon_test_df = X_test_non_text.copy()
         autogluon_test_df["price_in_eur"] = y_test.to_numpy(dtype=float)
         try:
             with _ModelRunLogger("autogluon", verbose=verbose) as model_log:
