@@ -177,7 +177,7 @@ def test_train_baseline_models_with_stacked_ensemble_only_runs_stacked_ensemble(
     assert set(result.predictions["model_name"]) == {"stacked_ensemble"}
 
 
-def test_train_baseline_models_all_includes_high_price_specialist(tmp_path, monkeypatch):
+def test_train_baseline_models_all_keeps_high_price_specialist_explicit_only(tmp_path, monkeypatch):
     captured = {"ran": False}
 
     def fake_high_price_specialist(_selected, **_kwargs):
@@ -189,12 +189,12 @@ def test_train_baseline_models_all_includes_high_price_specialist(tmp_path, monk
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=42, models=["all"])
 
-    assert captured["ran"] is True
-    assert "high_price_specialist" in result.metrics
+    assert captured["ran"] is False
+    assert "high_price_specialist" not in result.metrics
     assert "stacked_ensemble" in result.metrics
 
 
-def test_train_baseline_models_default_includes_high_price_specialist(tmp_path, monkeypatch):
+def test_train_baseline_models_default_keeps_high_price_specialist_explicit_only(tmp_path, monkeypatch):
     captured = {"ran": False}
 
     def fake_high_price_specialist(_selected, **_kwargs):
@@ -206,8 +206,8 @@ def test_train_baseline_models_default_includes_high_price_specialist(tmp_path, 
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=42)
 
-    assert captured["ran"] is True
-    assert "high_price_specialist" in result.metrics
+    assert captured["ran"] is False
+    assert "high_price_specialist" not in result.metrics
     assert "stacked_ensemble" in result.metrics
 
 
@@ -318,7 +318,7 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
     assert result.skipped_models.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
         assert result.skipped_models.get("ridge_artifact") == "skops is not installed"
-    assert set(result.metrics) == {"median", "ridge", "elasticnet", "high_price_specialist", "stacked_ensemble"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "stacked_ensemble"}
     assert list(result.predictions.columns) == [
         "row_index",
         "model_name",
@@ -326,12 +326,11 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
         "predicted_price_eur",
         "residual_eur",
     ]
-    assert set(result.predictions["model_name"]) == {"median", "ridge", "elasticnet", "high_price_specialist", "stacked_ensemble"}
+    assert set(result.predictions["model_name"]) == {"median", "ridge", "elasticnet", "stacked_ensemble"}
     assert result.predictions["model_name"].value_counts().to_dict() == {
         "median": 2,
         "ridge": 2,
         "elasticnet": 2,
-        "high_price_specialist": 2,
         "stacked_ensemble": 2,
     }
     for model_name in ("median", "ridge", "elasticnet"):
@@ -340,7 +339,7 @@ def test_train_baseline_models_writes_reports_and_returns_metrics(tmp_path, monk
         assert len(model_rows) == len(expected_holdout)
 
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert set(metrics) == {"median", "ridge", "elasticnet", "high_price_specialist", "stacked_ensemble"}
+    assert set(metrics) == {"median", "ridge", "elasticnet", "stacked_ensemble"}
     skipped_payload = json.loads((tmp_path / "skipped_models.json").read_text(encoding="utf-8"))
     assert skipped_payload.get("skrub_ridge") == "skrub is not installed"
     if skops_missing:
@@ -445,7 +444,7 @@ def test_train_baseline_models_ignores_benchmark_db_failures(tmp_path, monkeypat
 
     result = train_baseline_models(_gold_frame(), tmp_path, random_state=17)
 
-    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "stacked_ensemble"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "stacked_ensemble"}
     assert (tmp_path / "metrics.json").exists()
     assert (tmp_path / "predictions.csv").exists()
     assert benchmark_db.get_latest_run(db_path) is None
@@ -470,7 +469,7 @@ def test_train_baseline_models_defaults_do_not_run_challengers(tmp_path, monkeyp
 
     result = train_baseline_models(gold_df, tmp_path, random_state=42)
 
-    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "stacked_ensemble"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "stacked_ensemble"}
     assert "tabpfn_default" not in result.metrics
     assert "tabfm" not in result.metrics
     assert "autogluon" not in result.metrics
@@ -1106,7 +1105,7 @@ def test_train_baseline_models_clears_stale_skipped_models_file_when_skrub_recov
     if skipped_path.exists():
         second_payload = json.loads(skipped_path.read_text(encoding="utf-8"))
         assert second_payload.get("skrub_ridge") is None
-    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "stacked_ensemble"}
+    assert set(result.metrics) == {"median", "ridge", "elasticnet", "skrub_ridge", "stacked_ensemble"}
 
 
 def test_train_baseline_models_removes_stale_sklearn_artifacts_when_skops_is_unavailable(tmp_path, monkeypatch):

@@ -98,7 +98,7 @@ SUPPORTED_MODEL_NAMES = {
     "autogluon",
     "all",
 }
-DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge", "high_price_specialist", "stacked_ensemble")
+DEFAULT_MODEL_NAMES = ("median", "ridge", "elasticnet", "skrub_ridge", "stacked_ensemble")
 
 
 def tune_elasticnet_params(

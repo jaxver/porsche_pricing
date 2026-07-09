@@ -5,6 +5,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from sklearn.dummy import DummyRegressor
+from sklearn.linear_model import Ridge
 from sklearn.utils import Tags
 from sklearn.utils._tags import TargetTags
 
@@ -323,13 +324,44 @@ def test_stacked_ensemble_pipeline_uses_out_of_fold_predictions(monkeypatch):
 
     monkeypatch.setattr("elferspot_listings.modeling.baselines.build_ridge_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
     monkeypatch.setattr("elferspot_listings.modeling.baselines.build_elasticnet_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
-    monkeypatch.setattr("elferspot_listings.modeling.baselines.build_high_price_specialist_pipeline", lambda *_args, **_kwargs: DummyRegressor(strategy="mean"))
-
     model = build_stacked_ensemble_pipeline(selected, random_state=42)
     model.fit(X, y)
 
-    assert model.oof_predictions_.shape == (len(X), 3)
+    assert model.oof_predictions_.shape == (len(X), 2)
+    assert model.ensemble_strategy_ == "geometric_mean"
+    assert model.average_model_names_ == ("ridge", "elasticnet")
     assert len(np.unique(model.oof_predictions_[:, 0])) > 1
+
+
+def test_stacked_ensemble_meta_model_uses_log_prediction_scale():
+    selected = SelectedColumns(target="price_in_eur", numeric=("Mileage_km",), categorical=())
+    X = pd.DataFrame({"Mileage_km": [1000, 2000]})
+
+    model = build_stacked_ensemble_pipeline(selected)
+    model.base_model_names_ = ("ridge", "elasticnet")
+
+    class FakeRegressor:
+        def __init__(self, values):
+            self.values = np.asarray(values, dtype=float)
+
+        def predict(self, X):
+            return self.values[: len(X)]
+
+    model.base_models_ = {
+        "ridge": FakeRegressor([200000, 60000]),
+        "elasticnet": FakeRegressor([201000, 61000]),
+    }
+    model.meta_model_ = Ridge().fit(
+        np.log(np.asarray([[200000, 201000], [60000, 61000]], dtype=float)),
+        np.log(np.asarray([200000, 61000], dtype=float)),
+    )
+    model.ensemble_strategy_ = "meta"
+    model.average_model_names_ = ()
+
+    predictions = model.predict(X)
+
+    assert (predictions > 1000).all()
+    assert predictions[0] > predictions[1]
 
 
 def test_elasticnet_pipeline_uses_ridge_preprocessing_and_predicts_positive_eur_scale_values():

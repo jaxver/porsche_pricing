@@ -249,7 +249,6 @@ class StackedEnsembleRegressor(BaseEstimator, RegressorMixin):
                     tfidf_ngram_range=self.tfidf_ngram_range,
                 ),
             ),
-            ("high_price_specialist", build_high_price_specialist_pipeline(self.selected, random_state=self.random_state)),
         ]
 
     def _predict_fold(self, model: Any, X: Any) -> np.ndarray:
@@ -290,15 +289,38 @@ class StackedEnsembleRegressor(BaseEstimator, RegressorMixin):
             self.base_models_[model_name] = fitted_model
 
         self.meta_model_ = Ridge(alpha=float(self.meta_alpha))
-        self.meta_model_.fit(self.oof_predictions_, y_values)
+        self.meta_model_.fit(np.log(self.oof_predictions_), np.log(y_values))
+        self.ensemble_strategy_, self.average_model_names_ = self._select_ensemble_strategy(self.oof_predictions_, y_values)
         return self
+
+    def _select_ensemble_strategy(self, base_predictions: np.ndarray, y_values: np.ndarray) -> tuple[str, tuple[str, ...]]:
+        candidates: dict[tuple[str, tuple[str, ...]], np.ndarray] = {}
+        ridge_elasticnet_names = tuple(name for name in ("ridge", "elasticnet") if name in self.base_model_names_)
+        if len(ridge_elasticnet_names) >= 2:
+            indices = [self.base_model_names_.index(name) for name in ridge_elasticnet_names]
+            candidates[("geometric_mean", ridge_elasticnet_names)] = np.exp(np.log(base_predictions[:, indices]).mean(axis=1))
+            return "geometric_mean", ridge_elasticnet_names
+
+        for column_index, model_name in enumerate(self.base_model_names_):
+            candidates[("single", (model_name,))] = base_predictions[:, column_index]
+
+        best_key = min(candidates, key=lambda key: float(np.mean(np.abs(candidates[key] - y_values))))
+        return best_key
 
     def predict(self, X: Any):
         check_is_fitted(self, ["base_models_", "meta_model_"])
         stacked_predictions = np.column_stack(
             [self._predict_fold(self.base_models_[model_name], X) for model_name in self.base_model_names_]
         )
-        meta_predictions = np.asarray(self.meta_model_.predict(stacked_predictions), dtype=float).reshape(-1)
+        if self.ensemble_strategy_ == "geometric_mean":
+            indices = [self.base_model_names_.index(name) for name in self.average_model_names_]
+            return np.exp(np.log(stacked_predictions[:, indices]).mean(axis=1))
+        if self.ensemble_strategy_ == "single":
+            index = self.base_model_names_.index(self.average_model_names_[0])
+            return stacked_predictions[:, index]
+
+        meta_log_predictions = np.asarray(self.meta_model_.predict(np.log(stacked_predictions)), dtype=float).reshape(-1)
+        meta_predictions = np.exp(meta_log_predictions)
         meta_predictions = np.where(np.isfinite(meta_predictions), meta_predictions, float(self.prediction_floor))
         return np.clip(meta_predictions, float(self.prediction_floor), None)
 
