@@ -53,6 +53,14 @@ LINEAR_NUMERIC_EXCLUDE = {
     "sport_chrono",
     "manual_transmission_text",
     "paint_to_sample_text",
+    "rsr_st_special",
+    "non_rebuilt",
+    "needs_rebuild",
+    "body_only",
+    "missing_drivetrain",
+    "project_car",
+    "not_ready_to_drive_text",
+    "accident_damage",
     "manthey",
     "ruf",
     "techart",
@@ -75,10 +83,11 @@ class MedianRegressor(BaseEstimator, RegressorMixin):
 
 
 def _tabular_only_selected_columns(selected: SelectedColumns) -> SelectedColumns:
+    linear_selected = _linear_selected_columns(selected)
     return SelectedColumns(
-        target=selected.target,
-        numeric=selected.numeric,
-        categorical=selected.categorical,
+        target=linear_selected.target,
+        numeric=linear_selected.numeric,
+        categorical=linear_selected.categorical,
     )
 
 
@@ -597,11 +606,13 @@ def build_perpetual_pipeline(selected: SelectedColumns, random_state: int = 42) 
 def build_skrub_ridge_pipeline(selected: SelectedColumns) -> TransformedTargetRegressor:
     from skrub import TableVectorizer
 
+    linear_selected = _linear_selected_columns(selected)
+
     model = Pipeline(
         steps=[
             (
                 "select",
-                FunctionTransformer(_select_columns, kw_args={"columns": selected.non_text_features}),
+                FunctionTransformer(_select_columns, kw_args={"columns": linear_selected.non_text_features}),
             ),
             ("features", TableVectorizer()),
             ("imputer", SimpleImputer(strategy="median")),

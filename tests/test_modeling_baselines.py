@@ -25,6 +25,15 @@ def _perpetual_sklearn_tags():
     return Tags(estimator_type="regressor", target_tags=TargetTags(required=False))
 
 
+def _numeric_columns_from_feature_transformer(model):
+    pipeline = model.regressor if hasattr(model, "regressor") else model
+    return next(
+        columns
+        for name, _transformer, columns in pipeline.steps[0][1].transformers
+        if name == "numeric"
+    )
+
+
 def test_median_regressor_predicts_global_median():
     regressor = MedianRegressor()
 
@@ -99,6 +108,14 @@ def test_ridge_pipeline_excludes_redundant_linear_text_flags():
             "sport_chrono",
             "manual_transmission_text",
             "paint_to_sample_text",
+            "rsr_st_special",
+            "non_rebuilt",
+            "needs_rebuild",
+            "body_only",
+            "missing_drivetrain",
+            "project_car",
+            "not_ready_to_drive_text",
+            "accident_damage",
             "manthey",
             "ruf",
             "techart",
@@ -119,6 +136,131 @@ def test_ridge_pipeline_excludes_redundant_linear_text_flags():
         if name == "numeric"
     )
     assert numeric_columns == ["Mileage_km"]
+
+
+def test_skrub_ridge_pipeline_excludes_redundant_linear_text_flags():
+    pytest.importorskip("skrub")
+
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=(
+            "Mileage_km",
+            "Year of construction",
+            "model_cat_ordered",
+            "limited_production",
+            "racing_history",
+            "weissach_package",
+            "pccb",
+            "ceramic_brakes",
+            "bucket_seats",
+            "clubsport_package",
+            "front_axle_lift",
+            "sport_chrono",
+            "manual_transmission_text",
+            "paint_to_sample_text",
+            "rsr_st_special",
+            "non_rebuilt",
+            "needs_rebuild",
+            "body_only",
+            "missing_drivetrain",
+            "project_car",
+            "not_ready_to_drive_text",
+            "accident_damage",
+            "manthey",
+            "ruf",
+            "techart",
+            "carbon_package",
+            "lightweight_package",
+            "full_leather",
+            "carbon_bucket_seats",
+        ),
+        categorical=("model_category",),
+    )
+
+    model = build_skrub_ridge_pipeline(selected)
+
+    selected_columns = model.regressor.steps[0][1].kw_args["columns"]
+    assert selected_columns == ["Mileage_km", "Year of construction", "model_category"]
+
+
+def test_high_price_specialist_pipeline_excludes_redundant_linear_text_flags():
+    selected = SelectedColumns(
+        target="price_in_eur",
+        numeric=(
+            "Mileage_km",
+            "Year of construction",
+            "model_cat_ordered",
+            "limited_production",
+            "racing_history",
+            "weissach_package",
+            "pccb",
+            "ceramic_brakes",
+            "bucket_seats",
+            "clubsport_package",
+            "front_axle_lift",
+            "sport_chrono",
+            "manual_transmission_text",
+            "paint_to_sample_text",
+            "rsr_st_special",
+            "non_rebuilt",
+            "needs_rebuild",
+            "body_only",
+            "missing_drivetrain",
+            "project_car",
+            "not_ready_to_drive_text",
+            "accident_damage",
+            "manthey",
+            "ruf",
+            "techart",
+            "carbon_package",
+            "lightweight_package",
+            "full_leather",
+            "carbon_bucket_seats",
+        ),
+        categorical=("model_category",),
+    )
+    X = pd.DataFrame(
+        {
+            "Mileage_km": [10000, 25000, 30000, 40000, 15000],
+            "Year of construction": [1995, 2000, 1988, 2010, 2004],
+            "model_cat_ordered": [1, 2, 3, 4, 5],
+            "limited_production": [0, 1, 0, 1, 0],
+            "racing_history": [0, 1, 0, 1, 0],
+            "weissach_package": [0, 1, 0, 1, 0],
+            "pccb": [0, 1, 0, 1, 0],
+            "ceramic_brakes": [0, 1, 0, 1, 0],
+            "bucket_seats": [0, 1, 0, 1, 0],
+            "clubsport_package": [0, 1, 0, 1, 0],
+            "front_axle_lift": [0, 1, 0, 1, 0],
+            "sport_chrono": [0, 1, 0, 1, 0],
+            "manual_transmission_text": [0, 1, 0, 1, 0],
+            "paint_to_sample_text": [0, 1, 0, 1, 0],
+            "rsr_st_special": [0, 1, 0, 1, 0],
+            "non_rebuilt": [0, 1, 0, 1, 0],
+            "needs_rebuild": [0, 1, 0, 1, 0],
+            "body_only": [0, 1, 0, 1, 0],
+            "missing_drivetrain": [0, 1, 0, 1, 0],
+            "project_car": [0, 1, 0, 1, 0],
+            "not_ready_to_drive_text": [0, 1, 0, 1, 0],
+            "accident_damage": [0, 1, 0, 1, 0],
+            "manthey": [0, 1, 0, 1, 0],
+            "ruf": [0, 1, 0, 1, 0],
+            "techart": [0, 1, 0, 1, 0],
+            "carbon_package": [0, 1, 0, 1, 0],
+            "lightweight_package": [0, 1, 0, 1, 0],
+            "full_leather": [0, 1, 0, 1, 0],
+            "carbon_bucket_seats": [0, 1, 0, 1, 0],
+            "model_category": ["911", "Cayenne", "Boxster", "Targa", "964"],
+        }
+    )
+    y = [120000, 320000, 260000, 340000, 310000]
+
+    model = build_high_price_specialist_pipeline(selected, high_price_threshold=250000)
+    model.fit(X, y)
+
+    assert _numeric_columns_from_feature_transformer(model.general_regressor_) == ["Mileage_km", "Year of construction"]
+    assert _numeric_columns_from_feature_transformer(model.specialist_regressor_) == ["Mileage_km", "Year of construction"]
+    assert _numeric_columns_from_feature_transformer(model.classifier_) == ["Mileage_km", "Year of construction"]
 
 
 def test_ridge_pipeline_fits_numeric_only_schema():
