@@ -234,6 +234,27 @@ def test_calculate_listing_score_extracts_high_value_signals_from_all_listing_te
     assert result.loc[0, "listing_score"] > 15
 
 
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Porsche 911 RSR-ST with racing history and documented overhaul.",
+        "Porsche 911 RSR/ST with racing history and documented overhaul.",
+    ],
+)
+def test_calculate_listing_score_matches_rsr_st_separator_variants(description):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911 RSR ST"],
+            "Model": ["911 RSR ST"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "rsr_st_special"] == 1
+
+
 def test_calculate_listing_score_extracts_option_and_specialist_flags_from_combined_listing_text():
     df = pd.DataFrame(
         {
@@ -328,6 +349,303 @@ def test_calculate_listing_score_does_not_overmatch_obvious_non_option_phrasing(
     assert result.loc[0, "front_axle_lift"] == 0
     assert result.loc[0, "sport_chrono"] == 0
     assert result.loc[0, "carbon_bucket_seats"] == 0
+
+
+def test_calculate_listing_score_extracts_rare_collector_regime_flags():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911 RSR ST", "Porsche 911 RSR ST"],
+            "Model": ["911 RSR", "911 RSR"],
+            "Description": [
+                "RSR prepared by Tuthill with racing history and an engine and transmission rebuilt after the season.",
+                "Collector-grade coupe with full service history and recent maintenance.",
+            ],
+            "Secondary_Description": [
+                "Documented collector car with zero running hours since overhaul.",
+                "Documented collector car.",
+            ],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    expected_flags = [
+        "rsr_st_special",
+        "racing_history",
+        "specialist_build",
+        "zero_running_hours",
+        "engine_transmission_rebuilt",
+    ]
+    assert result.loc[0, expected_flags].tolist() == [1] * len(expected_flags)
+    assert result.loc[0, "listing_score"] > result.loc[1, "listing_score"]
+
+
+def test_calculate_listing_score_extracts_negative_collector_condition_flags():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911 RSR ST project", "Porsche 911 RSR ST project"],
+            "Model": ["911 RSR ST", "911 RSR ST"],
+            "Description": [
+                "Body-only rolling shell, missing engine and gearbox, not ready to drive, restoration project, needs engine rebuild after accident damage. RSR ST heritage shell.",
+                "Clean rare collector car with fresh service, documented history, and no restoration needs.",
+            ],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    expected_flags = [
+        "needs_rebuild",
+        "body_only",
+        "missing_drivetrain",
+        "project_car",
+        "not_ready_to_drive_text",
+        "accident_damage",
+    ]
+    assert result.loc[0, expected_flags].tolist() == [1] * len(expected_flags)
+    assert result.loc[0, "listing_score"] < result.loc[1, "listing_score"]
+
+
+def test_calculate_listing_score_penalizes_mixed_rare_collector_condition_evidence():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911 RSR ST", "Porsche 911 RSR ST"],
+            "Model": ["911 RSR ST", "911 RSR ST"],
+            "Description": [
+                "RSR ST prepared by RS Tuning with racing history and an engine and transmission rebuilt.",
+                "RSR ST prepared by RS Tuning with racing history, but body-only project car missing engine and needs rebuild.",
+            ],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[1, "body_only"] == 1
+    assert result.loc[1, "missing_drivetrain"] == 1
+    assert result.loc[1, "needs_rebuild"] == 1
+    assert result.loc[0, "listing_score"] > result.loc[1, "listing_score"]
+
+
+def test_calculate_listing_score_does_not_overmatch_negative_condition_phrasing():
+    df = pd.DataFrame(
+        {
+                "Title": ["Porsche 911"],
+                "Model": ["911"],
+                "Description": [
+                    "Engine rebuilt, gearbox overhauled, ready to drive, accident-free, complete body color matching shell, roller bearing, without engine cover, no engine damage, no gearbox issues, no accident damage, Porsche 911 RSR style wheels, RSR ST-style, RSR ST heritage shell, 911 ST heritage shell, S/T heritage shell, 911 ST homage, RSR ST clone, S/T recreation, RSR-style wheels, owner's manual included."
+                ],
+            }
+        )
+
+    result = calculate_listing_score(df)
+
+    negative_flags = [
+        "non_rebuilt",
+        "needs_rebuild",
+        "body_only",
+        "missing_drivetrain",
+        "project_car",
+        "not_ready_to_drive_text",
+        "accident_damage",
+    ]
+    assert result.loc[0, negative_flags].tolist() == [0] * len(negative_flags)
+    assert result.loc[0, "is_rare"] == 0
+    assert result.loc[0, "heritage_special"] == 0
+    assert result.loc[0, "rsr_st_special"] == 0
+    assert result.loc[0, "not_ready_to_drive_text"] == 0
+    assert result.loc[0, "missing_drivetrain"] == 0
+    assert result.loc[0, "accident_damage"] == 0
+
+
+@pytest.mark.parametrize("description", ["missing engine cover", "missing gearbox cover"])
+def test_calculate_listing_score_does_not_flag_missing_drivetrain_for_covers(description):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "missing_drivetrain"] == 0
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["speedster style", "sport classic homage", "dakar replica", "style speedster", "replica dakar", "homage sport classic"],
+)
+def test_calculate_listing_score_does_not_bonus_non_genuine_special_editions(description):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "is_rare"] == 0
+    assert result.loc[0, "heritage_special"] == 0
+
+
+def test_calculate_listing_score_does_not_flag_accident_damage_for_known_negation():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": ["Engine rebuilt, gearbox overhauled, ready to drive, no known accident damage."],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "accident_damage"] == 0
+
+
+@pytest.mark.parametrize(
+    ("description", "expected_flags"),
+    [
+        ("rare clone", {"is_rare": 0}),
+        ("special edition replica", {"is_rare": 0}),
+        ("limited edition replica", {"is_rare": 0}),
+        ("heritage design replica", {"is_rare": 0, "heritage_special": 0}),
+    ],
+)
+def test_calculate_listing_score_does_not_bonus_generic_rarity_terms_with_fake_qualifiers(
+    description, expected_flags
+):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    for flag, expected in expected_flags.items():
+        assert result.loc[0, flag] == expected
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["Porsche 911 Speedster", "Porsche 911 Sport Classic", "Porsche 911 Dakar"],
+)
+def test_calculate_listing_score_still_flags_genuine_special_editions(description):
+    df = pd.DataFrame(
+        {
+            "Title": [description],
+            "Model": [description],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "is_rare"] == 1
+    assert result.loc[0, "heritage_special"] == 1
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected_flag"),
+    [
+        ("unrestored", "non_rebuilt"),
+        ("no MOT", "not_ready_to_drive_text"),
+        ("without MOT", "not_ready_to_drive_text"),
+        ("no TUV", "not_ready_to_drive_text"),
+        ("no TÜV", "not_ready_to_drive_text"),
+        ("without TUV", "not_ready_to_drive_text"),
+        ("without TÜV", "not_ready_to_drive_text"),
+        ("does not start", "not_ready_to_drive_text"),
+        ("doesn't start", "not_ready_to_drive_text"),
+        ("cannot start", "not_ready_to_drive_text"),
+    ],
+)
+def test_calculate_listing_score_matches_common_negative_condition_phrasing(phrase, expected_flag):
+    baseline = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": ["Engine rebuilt, gearbox overhauled, ready to drive, accident-free."],
+        }
+    )
+    with_phrase = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [f"Engine rebuilt, gearbox overhauled, ready to drive, accident-free. {phrase}."],
+        }
+    )
+
+    baseline_result = calculate_listing_score(baseline)
+    result = calculate_listing_score(with_phrase)
+
+    assert result.loc[0, expected_flag] == 1
+    assert result.loc[0, "listing_score"] < baseline_result.loc[0, "listing_score"]
+
+
+@pytest.mark.parametrize("phrase", ["not running", "not drivable"])
+def test_calculate_listing_score_matches_common_roadworthiness_phrasing(phrase):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [f"Engine rebuilt, gearbox overhauled, ready to drive, accident-free. {phrase}."] ,
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "not_ready_to_drive_text"] == 1
+
+
+def test_calculate_listing_score_caps_negative_penalty():
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [
+                "Body-only rolling shell, missing engine, project car, accident damage."
+            ],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "body_only"] == 1
+    assert result.loc[0, "missing_drivetrain"] == 1
+    assert result.loc[0, "project_car"] == 1
+    assert result.loc[0, "accident_damage"] == 1
+    assert result.loc[0, "listing_score"] == pytest.approx(-12.0)
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "replica 911 ST",
+        "style 911 ST",
+        "homage 911 ST",
+        "replica RSR ST",
+    ],
+)
+def test_calculate_listing_score_does_not_flag_non_genuine_leading_qualifiers(description):
+    df = pd.DataFrame(
+        {
+            "Title": ["Porsche 911"],
+            "Model": ["911"],
+            "Description": [description],
+        }
+    )
+
+    result = calculate_listing_score(df)
+
+    assert result.loc[0, "is_rare"] == 0
+    assert result.loc[0, "heritage_special"] == 0
+    assert result.loc[0, "rsr_st_special"] == 0
 
 
 def test_prepare_modeling_features_coerces_numeric_and_fills_colors():

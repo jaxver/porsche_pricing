@@ -19,6 +19,31 @@ logger = logging.getLogger(__name__)
 
 TEXT_FEATURE_COLUMNS = ("Title", "Model", "Description", "Secondary_Description")
 
+NON_GENUINE_SUFFIX = r'[\s\-/,:()]*?(?:style|spec|comparison|replica|look|lookalike|inspired|tribute|homage|clone|recreation|restomod|heritage shell)\b'
+NON_GENUINE_PREFIX_GUARDS = ''.join(
+    f'(?<!\\b{term}\\s)'
+    for term in (
+        'style',
+        'spec',
+        'comparison',
+        'replica',
+        'look',
+        'lookalike',
+        'inspired',
+        'tribute',
+        'homage',
+        'clone',
+        'recreation',
+        'restomod',
+        'heritage shell',
+    )
+)
+NON_GENUINE_SPECIAL_EDITION_GUARDS = rf'\b(?:speedster|sport classic|dakar)\b(?!{NON_GENUINE_SUFFIX})'
+GUARDED_SPECIAL_EDITION_TERMS = rf'{NON_GENUINE_PREFIX_GUARDS}(?:speedster|sport classic|dakar)(?!{NON_GENUINE_SUFFIX})'
+GUARDED_GENERIC_RARITY_TERMS = rf'{NON_GENUINE_PREFIX_GUARDS}(?:rare\b|special edition|limited edition)(?!{NON_GENUINE_SUFFIX})'
+GUARDED_HERITAGE_DESIGN = rf'{NON_GENUINE_PREFIX_GUARDS}heritage design(?!{NON_GENUINE_SUFFIX})'
+NON_DRIVETRAIN_SUFFIX = r'\s+(?:cover|covers?|trim|trims?|noise|rebuild|damage|issues?|problem|problems?|work|service|history|paperwork|records)\b'
+
 
 def build_listing_text(df: pd.DataFrame) -> pd.Series:
     """Combine available listing text fields into one modeling text source."""
@@ -252,7 +277,8 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'is_matching_numbers': r'\b(?:matching numbers|numbers matching|matching drivetrain)\b',
         'is_mint': r'\b(?:mint condition|collector quality|fully sorted|excellent condition|top condition|showroom condition)\b',
         'is_race_ready': r'\b(?:rally ready|race[- ]?ready|track[- ]?prepped|bucket seats|racing harness|homologated|fire suppression system|racing history|race winner|overall winner|group winner|24 hour|nürburgring|nurburgring|spa|le mans|adac|fia|championship|podium|cup\s*s?\b|clubsport|club sport|cup car)\b',
-        'is_rare': r'\b(?:rare\b|special edition|limited edition|1 of (?:\d+|one)|one of \d+|only \d+ (?:produced|built|made|delivered|examples|cars)|\d+ produced|production number \d+|number \d+ of \d+|rwb|singer|guntherwerks|elfwerks|sport classic|speedster|911 r\b|911 st\b|s/t|heritage design|dakar|bespoke|factory-approved exclusivity|exclusive manufaktur|paint to sample|pts|sonderwunsch|unique piece|unique example|special commission|commissioned)\b',
+         'is_rare': rf'\b(?:{GUARDED_GENERIC_RARITY_TERMS}|1 of (?:\d+|one)|one of \d+|only \d+ (?:produced|built|made|delivered|examples|cars)|\d+ produced|production number \d+|number \d+ of \d+|rwb|singer|guntherwerks|elfwerks|{GUARDED_SPECIAL_EDITION_TERMS}|911 r\b|{NON_GENUINE_PREFIX_GUARDS}911 st\b(?!{NON_GENUINE_SUFFIX})|{NON_GENUINE_PREFIX_GUARDS}s/t\b(?!{NON_GENUINE_SUFFIX})|{GUARDED_HERITAGE_DESIGN}|bespoke|factory-approved exclusivity|exclusive manufaktur|paint to sample|pts|sonderwunsch|unique piece|unique example|special commission|commissioned)\b',
+        'rsr_st_special': rf'{NON_GENUINE_PREFIX_GUARDS}\b(?:porsche\s+911\s+rsr[\s\-/]+st\b|911\s+rsr[\s\-/]+st\b|rsr[\s\-/]+st\b)(?!{NON_GENUINE_SUFFIX})',
         'is_accident_free': r'\b(?:accident[- ]?free|never crashed|clean title|no accidents|undamaged)\b',
         'has_upgrades': r'\b(?:KW suspension|x51|upgraded brakes|recaro|limited[- ]?slip|aftermarket (?:exhaust|turbo|suspension|intake|wheels)|performance parts|turbo upgrade|weissach package)\b',
         'first_owner': r'\b(?:first owner|one owner|single owner|original owner|first hand|single registered keeper)\b',
@@ -262,8 +288,15 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'bespoke_exclusive': r'\b(?:bespoke|factory-approved exclusivity|exclusive manufaktur|paint to sample|pts|sonderwunsch|unique piece|unique example|special commission|commissioned|commission)\b',
         'zero_running_hours': r'\b(?:zero running hours|0 running hours|no running hours)\b',
         'engine_transmission_rebuilt': r'\b(?:engine and transmission|gearbox).{0,80}\b(?:overhauled|rebuilt|rebuild|restored)\b|\b(?:overhauled|rebuilt|rebuild|restored).{0,80}\b(?:engine and transmission|gearbox)\b',
+        'non_rebuilt': r'\bunrestored\b|\b(?:not|never|non[- ]?)\s*(?:rebuilt|restored|overhauled)\b',
+        'needs_rebuild': r'\b(?:needs?|requires?|requiring|awaiting|due for)(?!\s+no\b)\s+(?:an?\s+)?(?:(?:engine|gearbox|transmission|mechanical)\s+)?(?:rebuild|overhaul|restoration|recommissioning|work)\b',
+        'body_only': r'\b(?:body[- ]?only|shell[- ]?only|bare shell|rolling shell|rolling chassis|rolling project|roller project|chassis only)\b',
+        'missing_drivetrain': rf'\bmissing\s+(?:the\s+)?(?:engine|gearbox|transmission|drivetrain|motor)\b(?!{NON_DRIVETRAIN_SUFFIX})|\b(?:engine|gearbox|transmission|drivetrain)\s+(?:missing|absent|not included)\b(?!{NON_DRIVETRAIN_SUFFIX})|\bwithout\s+(?:the\s+)?(?:engine|gearbox|transmission|drivetrain|motor)\b(?!{NON_DRIVETRAIN_SUFFIX})',
+        'project_car': r'\b(?:project car|restoration project|unfinished project|parts car|for restoration|requires restoration|requires recommissioning|needs recommissioning)\b',
+         'not_ready_to_drive_text': r'\b(?:not ready to drive|not[\s-]+running|not[\s-]+drivable|non[- ]running|does not run|doesn\'?t run|will not start|won\'?t start|does(?:\s+not|n\'?t)\s+start|cannot start|not roadworthy|no\s+(?:mot|tuv|tüv)\b|without\s+(?:mot|tuv|tüv)\b|no\s+(?:mot|tuv|tüv)\s+certificate|without\s+(?:mot|tuv|tüv)\s+certificate)\b',
+         'accident_damage': r'(?<!no\s)(?<!without\s)(?<!no known\s)(?<!without known\s)\b(?:accident damage|damaged car|salvage title|write[- ]off|crash damage|fire damage|flood damage)\b',
         'cup_clubsport': r'\b(?:cup\s*s?\b|clubsport|club sport|cup car)\b',
-        'heritage_special': r'\b(?:sport classic|speedster|911 r\b|911 st\b|s/t|heritage design|dakar)\b',
+         'heritage_special': rf'\b(?:{GUARDED_SPECIAL_EDITION_TERMS}|911 r\b|{NON_GENUINE_PREFIX_GUARDS}911 st\b(?!{NON_GENUINE_SUFFIX})|{NON_GENUINE_PREFIX_GUARDS}s/t\b(?!{NON_GENUINE_SUFFIX})|{GUARDED_HERITAGE_DESIGN})\b',
         'weissach_package': r'\bweissach package\b',
         'pccb': r'\bpccb\b',
         'ceramic_brakes': r'\b(?:ceramic brakes?|ceramic disc brakes?)\b',
@@ -291,6 +324,7 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'is_mint': 0.5,
         'is_race_ready': 2.5,
         'is_rare': 2.5,
+        'rsr_st_special': 2.0,
         'is_accident_free': 0.5,
         'has_upgrades': 2.3,
         'first_owner': 1.2,
@@ -320,12 +354,29 @@ def calculate_listing_score(df: pd.DataFrame) -> pd.DataFrame:
         'carbon_bucket_seats': 1.8,
     }
 
+    negative_condition_weights = {
+        'non_rebuilt': -1.2,
+        'needs_rebuild': -2.5,
+        'body_only': -4.0,
+        'missing_drivetrain': -4.0,
+        'project_car': -2.5,
+        'not_ready_to_drive_text': -2.0,
+        'accident_damage': -2.5,
+    }
+
     if any(column in df.columns for column in TEXT_FEATURE_COLUMNS):
         df['listing_text'] = build_listing_text(df)
         text_series = df['listing_text'].fillna("").str.lower()
         for feature, pattern in description_patterns.items():
             df[feature] = text_series.str.contains(pattern, regex=True, flags=re.IGNORECASE).astype(int)
+            if feature in negative_condition_weights:
+                continue
             score_components.append(df[feature] * description_weights[feature])
+
+        negative_penalty = pd.Series(0.0, index=df.index)
+        for feature, weight in negative_condition_weights.items():
+            negative_penalty = negative_penalty + (df[feature] * weight)
+        score_components.append(negative_penalty.clip(lower=-12.0))
     
     # --- Combine scores ---
     if score_components:
